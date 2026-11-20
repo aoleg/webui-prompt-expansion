@@ -1,0 +1,123 @@
+"""Prompt Expansion: the image model's own text encoder rewrites every prompt of a job before it is encoded."""
+
+import os
+
+import gradio as gr
+from lib_prompt_expansion import presets as preset_files
+from lib_prompt_expansion import substitute
+from lib_prompt_expansion.adapters import status
+from lib_prompt_expansion.sampling import SamplingOptions
+
+from modules import scripts, shared
+from modules.ui import random_symbol, refresh_symbol, reuse_symbol
+from modules.ui_components import InputAccordion, ToolButton
+
+TITLE = "Prompt Expansion"
+
+
+def status_line() -> str:
+    """Whether the loaded checkpoint's text encoder can write. Never loads a model."""
+    from modules import sd_models
+
+    model = sd_models.model_data.sd_model
+    if model is None or type(model).__name__ == "FakeInitialModel":
+        return "No checkpoint is loaded yet. The text encoder is checked when you generate."
+    return status(model)[1]
+
+
+class PromptExpansionScript(scripts.Script):
+    warned_order = False
+
+    def title(self):
+        return TITLE
+
+    def show(self, is_img2img):
+        return scripts.AlwaysVisible
+
+    def ui(self, is_img2img):
+        presets = preset_files.load()
+        names = [preset.name for preset in presets]
+        first = presets[0] if presets else None
+
+        # No gr.Group in here: sd-webui-tabs-extension hides a panel that contains one.
+        with InputAccordion(False, label=TITLE, elem_id=self.elem_id("enable")) as enabled:
+            state_text = gr.Markdown(status_line(), elem_id=self.elem_id("status"))
+            with gr.Row():
+                preset = gr.Dropdown(label="Preset", choices=names, value=first.name if first else None, elem_id=self.elem_id("preset"), scale=8)
+                refresh = ToolButton(value=refresh_symbol, elem_id=self.elem_id("refresh"), tooltip="Reload the preset files and check the loaded checkpoint")
+            instruction = gr.Textbox(
+                label="Expansion prompt",
+                info="The instruction given to the text encoder; your prompt follows as the request. {words} is replaced by the length. Edit freely.",
+                lines=6,
+                value=first.text if first else "",
+                elem_id=self.elem_id("instruction"),
+            )
+            with gr.Row():
+                words = gr.Slider(label="Length (words)", info="0 = the preset's own length", minimum=0, maximum=400, step=10, value=0, elem_id=self.elem_id("words"), scale=6)
+                seed = gr.Number(label="Expansion seed", info="-1 = random; else the first prompt's seed, +1 for each next one", value=-1, precision=0, elem_id=self.elem_id("seed"), scale=4)
+                random = ToolButton(value=random_symbol, elem_id=self.elem_id("random_seed"), tooltip="Random expansion seed")
+                reuse = ToolButton(value=reuse_symbol, elem_id=self.elem_id("reuse_seed"), tooltip="Reuse the start seed of the last job")
+            with gr.Accordion("Advanced", open=False, elem_id=self.elem_id("advanced")):
+                with gr.Row():
+                    do_sample = gr.Checkbox(label="Sampling", info="Off: always the most likely word, one text for equal prompts", value=True, elem_id=self.elem_id("sampling"))
+                    temperature = gr.Slider(label="Temperature", minimum=0.1, maximum=1.5, step=0.05, value=0.6, elem_id=self.elem_id("temperature"))
+                    top_p = gr.Slider(label="Top p", minimum=0.1, maximum=1.0, step=0.05, value=0.8, elem_id=self.elem_id("top_p"))
+                with gr.Row():
+                    max_tokens = gr.Slider(label="Max new tokens", info="Upper limit for one text", minimum=64, maximum=2048, step=32, value=512, elem_id=self.elem_id("max_tokens"))
+                    rows = gr.Slider(label="Prompts per pass", info="How many prompts are written side by side", minimum=1, maximum=32, step=1, value=10, elem_id=self.elem_id("rows"))
+                    thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3 encoders); much slower", value=False, elem_id=self.elem_id("thinking"))
+
+        def pick(name):
+            found = preset_files.find(preset_files.load(), name)
+            return gr.skip() if found is None else found.text
+
+        def reload(current):
+            fresh = [item.name for item in preset_files.load()]
+            return gr.update(choices=fresh, value=current if current in fresh else (fresh[0] if fresh else None)), status_line()
+
+        preset.change(fn=pick, inputs=[preset], outputs=[instruction], show_progress=False)
+        refresh.click(fn=reload, inputs=[preset], outputs=[preset, state_text], show_progress=False)
+        enabled.change(fn=status_line, inputs=[], outputs=[state_text], show_progress=False)
+        random.click(fn=lambda: -1, inputs=[], outputs=[seed], show_progress=False)
+        reuse.click(fn=lambda: -1 if substitute.last_start_seed is None else substitute.last_start_seed, inputs=[], outputs=[seed], show_progress=False)
+
+        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking]
+
+    def scripts_after_me(self, p) -> set[str]:
+        """Names ("Class@file.py") of the scripts whose process step runs after this one."""
+        try:
+            order = [callback.callback for callback in p.scripts.ordered_callbacks("process")]
+            mine = order.index(self)
+        except Exception:  # noqa: BLE001 - only used for two precautions
+            return set()
+        return {f"{type(script).__name__}@{os.path.basename(script.filename or '')}" for script in order[mine + 1 :]}
+
+    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, *_):
+        if not enabled:
+            return
+        instruction = (instruction or "").strip()
+        if not instruction:
+            print(f"[{TITLE}] The expansion prompt is empty; the prompts are used as typed.")
+            return
+
+        presets = preset_files.load()
+        chosen = preset_files.find(presets, preset)
+        settings = substitute.Settings(
+            instruction=instruction,
+            preset_name=preset_files.name_of(presets, instruction),
+            words=preset_files.effective_words(instruction, int(words or 0), chosen.words if chosen else 0),
+            seed=-1 if seed is None else int(seed),
+            sampling=SamplingOptions(do_sample=bool(do_sample), temperature=float(temperature), top_p=float(top_p)),
+            max_new_tokens=int(max_tokens),
+            rows_per_pass=int(rows),
+            thinking=bool(thinking),
+        )
+
+        later = self.scripts_after_me(p)
+        comments_follow = "ScriptComments@comments.py" in later and bool(getattr(shared.opts, "enable_prompt_comments", False))
+        if any(name.endswith("@dynamic_prompting.py") for name in later) and not PromptExpansionScript.warned_order:
+            PromptExpansionScript.warned_order = True
+            print(f"[{TITLE}] Dynamic Prompts runs after this extension, so wildcards are expanded as text. Check Settings > Callbacks, or the folder name (webui-prompt-expansion).")
+
+        report = substitute.expand(p, settings, state=shared.state, comments_follow=comments_follow)
+        print(f"[{TITLE}] {report.line()}")

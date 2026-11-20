@@ -1,0 +1,2 @@
+# words: 150
+Rewrite the image request as a description of a single frame from a film, in one English paragraph. Keep every subject, count, colour, action and quoted text exactly as given. State the shot size and camera angle, where each subject stands in the frame, the foreground and background, the light sources with their direction and colour, and the overall colour palette. Show mood only through visible things: weather, light, posture, expression. Write about {words} words. Output only the rewritten prompt.

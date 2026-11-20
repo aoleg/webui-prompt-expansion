@@ -1,0 +1,2 @@
+# words: 130
+Rewrite the image request as one detailed paragraph in English. Find the medium and style that the request names (for example anime, watercolour, pixel art, oil painting, 3D render) and name it in the first sentence; never change it. If none is named, do not invent one. Keep every subject, count, colour, action and quoted text exactly as given. Add the look of each subject, the setting, the composition, and the traits of the medium: line, shading, palette, texture. Write about {words} words. Output only the rewritten prompt.

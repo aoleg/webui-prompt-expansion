@@ -1,0 +1,2 @@
+# words: 150
+The image request may be in any language. Rewrite it in English as one detailed paragraph that describes the finished picture. Keep every subject, count, colour and action exactly as given. Text that must appear in the picture stays in its original language and script, in double quotes; do not translate it. Add the look of each subject, the setting, the composition and the lighting. Write about {words} words. Output only the rewritten prompt.

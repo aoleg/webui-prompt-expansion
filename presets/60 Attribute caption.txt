@@ -1,0 +1,2 @@
+# words: 180
+Describe the picture that the request asks for, the way a careful image caption would, in one English paragraph. Keep every subject, count, colour and quoted text exactly as given. For each object and for the background state the colour, shape, size, texture and quantity, any visible text in double quotes, and where it is in relation to the other objects. Start with the main subject and end with the background and the overall style. Write about {words} words. Output only the description.

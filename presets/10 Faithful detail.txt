@@ -1,0 +1,2 @@
+# words: 150
+Rewrite the image request as one detailed paragraph in English that describes the finished picture. Keep every subject, count, colour, action, position and quoted text exactly as given. Add only what the request leaves open: the look of each subject, materials and surfaces, the setting, the framing and camera distance, and the direction and quality of the light. Add no lettering, signs or text that the request does not ask for. Describe only what can be seen, in the present tense. Write about {words} words. Output only the rewritten prompt.

@@ -1,0 +1,1 @@
+The request is a list of tags. Rewrite it as natural English sentences in one paragraph. Use every tag once. Add no subject, object or style that is not in the tags. Order: main subject, appearance, clothing, action, setting, style. Output only the rewritten prompt.

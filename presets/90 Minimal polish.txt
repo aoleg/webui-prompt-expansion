@@ -1,0 +1,1 @@
+Rewrite the image request in clear English. Fix grammar, replace vague words with concrete ones, and put the parts in this order: subject, action, setting, style. Add nothing new. Keep it close to the original length. Output only the rewritten prompt.

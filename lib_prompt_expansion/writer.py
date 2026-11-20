@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+import torch
 from backend import memory_management
 
 from .adapters import Adapter
@@ -41,17 +42,35 @@ class Writer:
     def __init__(self, adapter: Adapter):
         self.adapter = adapter
         self.head: Optional[Head] = None
+        self._mode = None
 
     def __enter__(self):
-        if self.adapter.patcher is not None:
-            memory_management.load_model_gpu(self.adapter.patcher)
-        self.head = Head(self.adapter.transformer, self.adapter.tied, head_file=self.adapter.head_file)
+        # The whole session runs in inference mode, as Forge's own encode path does. Forge creates a model's
+        # weights in inference mode; a script's process() hook runs outside it. Asking Forge to move the encoder
+        # to the GPU from out there leaves the weights half-converted (they look like ordinary tensors but have
+        # no version counter), and the first operation that takes a view of one fails with "Inference tensors do
+        # not track version counter". Qwen3.5's 1-D convolution does that.
+        self._mode = torch.inference_mode()
+        self._mode.__enter__()
+        try:
+            if self.adapter.patcher is not None:
+                memory_management.load_model_gpu(self.adapter.patcher)
+            self.head = Head(self.adapter.transformer, self.adapter.tied, head_file=self.adapter.head_file)
+        except BaseException:
+            self._leave()
+            raise
         return self
+
+    def _leave(self):
+        if self._mode is not None:
+            mode, self._mode = self._mode, None
+            mode.__exit__(None, None, None)
 
     def __exit__(self, *_):
         if self.head is not None:
             self.head.release()
             self.head = None
+        self._leave()
         return False
 
     def write_many(

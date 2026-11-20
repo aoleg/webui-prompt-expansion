@@ -3,6 +3,7 @@
 import os
 
 import gradio as gr
+from lib_prompt_expansion import fetch as head_fetch
 from lib_prompt_expansion import presets as preset_files
 from lib_prompt_expansion import substitute
 from lib_prompt_expansion.adapters import status
@@ -44,7 +45,7 @@ class PromptExpansionScript(scripts.Script):
             state_text = gr.Markdown(status_line(), elem_id=self.elem_id("status"))
             with gr.Row():
                 preset = gr.Dropdown(label="Preset", choices=names, value=first.name if first else None, elem_id=self.elem_id("preset"), scale=8)
-                refresh = ToolButton(value=refresh_symbol, elem_id=self.elem_id("refresh"), tooltip="Reload the preset files and check the loaded checkpoint")
+                refresh = ToolButton(value=refresh_symbol, elem_id=self.elem_id("refresh"), tooltip="Reload the preset files, check the loaded checkpoint, and let a failed download be tried again")
             instruction = gr.Textbox(
                 label="Expansion prompt",
                 info="The instruction given to the text encoder; your prompt follows as the request. {words} is replaced by the length. Edit freely.",
@@ -65,13 +66,14 @@ class PromptExpansionScript(scripts.Script):
                 with gr.Row():
                     max_tokens = gr.Slider(label="Max new tokens", info="Upper limit for one text", minimum=64, maximum=2048, step=32, value=512, elem_id=self.elem_id("max_tokens"))
                     rows = gr.Slider(label="Prompts per pass", info="How many prompts are written side by side", minimum=1, maximum=32, step=1, value=10, elem_id=self.elem_id("rows"))
-                    thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3-4B; the other encoders ignore it). Much slower; set Max new tokens to 1500 or more", value=False, elem_id=self.elem_id("thinking"))
+                    thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3-4B, and Qwen3-8B with its own output head; the other encoders ignore it). Much slower; set Max new tokens to 1500 or more", value=False, elem_id=self.elem_id("thinking"))
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)
             return gr.skip() if found is None else found.text
 
         def reload(current):
+            head_fetch.forget_failures()  # a download that failed is tried again by the next job
             fresh = [item.name for item in preset_files.load()]
             return gr.update(choices=fresh, value=current if current in fresh else (fresh[0] if fresh else None)), status_line()
 

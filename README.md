@@ -23,11 +23,15 @@ A bus stop on a rainy street at night features a shelter with a red roof where w
 | Qwen-Image 2.1 | Qwen3-VL 8B | |
 | MOSS-Image | Qwen3.5 9B | |
 | P-H3-Image, and MiniMax-H3-Image run with the P-H3-Image encoder | Qwen3-VL 4B | Through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo) |
-| FLUX.2 Klein 9B | Qwen3-8B | Needs an output head from a second file, see below |
+| FLUX.2 Klein 9B | Qwen3-8B | Downloads its output head (1.24 GB) at first use, see below |
 
 All six were run on real encoder files through Forge Neo's own loader.
 
-**FLUX.2 Klein 9B.** Qwen3-8B keeps its output table (`lm_head`) apart from its input table, and the usual fp8 encoder file for Klein 9B was saved without it. The extension then borrows a head of the same size from another text encoder file in your text encoder folders. The Qwen-Image 2.1 encoder (Qwen3-VL 8B) has one, and Qwen3-VL 8B is built on Qwen3-8B, so the two fit: with that file on disk, Klein 9B writes well. The panel names the file it borrows from. Without such a file the extension says so and leaves your prompts as typed. An encoder file that contains its own `lm_head` is used directly.
+**FLUX.2 Klein 9B.** Qwen3-8B keeps its output table (`lm_head`) apart from its input table, and the usual fp8 and fp4 encoder files for Klein 9B were saved without it. Qwen publishes that table as a file of its own, and the extension downloads it for you: the first time you generate with Klein 9B and the panel switched on, it fetches `model-00005-of-00005.safetensors` (1.24 GB, Apache 2.0) from [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) into the text encoder folder your Klein 9B encoder was loaded from, as `qwen_3_8b_lm_head.safetensors`. The file is checked against its SHA-256, and from then on it is found on disk. This is the only time the extension goes online. The encoder in the Klein 9B files is the unmodified Qwen3-8B, so this is its true head.
+
+The console shows the download and its progress; Interrupt stops it, and the next job goes on where it stopped. If it fails (no connection, a full disk, a folder that cannot be written), the console says why and how to get the file by hand, the job goes on, and the download is tried again after a restart or when you press the panel's refresh button. To do it by hand, download [the file](https://huggingface.co/Qwen/Qwen3-8B/resolve/main/model-00005-of-00005.safetensors) and put it into a text encoder folder under any name; it is recognised by its content. A mirror set in `HF_ENDPOINT` is used.
+
+While the true head is not there, the extension borrows a head of the same size from another text encoder file in your folders, if there is one. The Qwen-Image 2.1 encoder (Qwen3-VL 8B) has one, and Qwen3-VL 8B is built on Qwen3-8B, so it works, but clearly worse: about one text in ten does not come to an end, and thinking is not available. The panel names the file it borrows from. With no head at all your prompts are used as typed. An encoder file that contains its own `lm_head` (the full-precision 16 GB file does) is used directly, and nothing is downloaded.
 
 **MiniMax-H3-Image with its own 32B encoder** cannot be supported: that encoder is cut off after 50 of its 64 layers and has no output side at all.
 
@@ -107,7 +111,7 @@ Measured on an RTX 5090, encoder only, ten prompts in one pass, about 150 words 
 | Qwen3-VL 4B | scaled fp8 | 10 s | about 3 GB |
 | Qwen3-VL 4B (P-H3-Image) | int8 | 10 s | about 3 GB |
 | Qwen3-VL 8B | int8 | 9 s | about 2.5 GB |
-| Qwen3-8B | fp8 mixed, borrowed head | 12 s | about 3.6 GB |
+| Qwen3-8B | fp8 mixed, with its own head | 12 s | about 3.6 GB |
 | Qwen3.5 9B | int8 | 20 s | about 3.8 GB |
 
 The extra memory (the output table and the cache of the pass) is released when the job's prompts are written, before the image model starts. A single prompt takes nearly as long as ten.
@@ -119,7 +123,7 @@ This is slower than llama.cpp. The encoder runs as ordinary PyTorch modules, one
 - **Qwen3.5 9B (MOSS-Image)** follows the instruction most closely and writes the best text. It is the slowest. Its reasoning mode is switched off: it reasons at great length and did not finish within 1,500 tokens in testing.
 - **Qwen3-VL 8B (Qwen-Image 2.1)** is close behind: always on length, always ends cleanly, almost no non-visible detail.
 - **Qwen3-VL 4B (Krea 2)** writes well and stays on the rules.
-- **Qwen3-8B (FLUX.2 Klein 9B)** keeps every subject and all lettering, but writes through a borrowed output head. About one text in ten does not come to an end by itself and is cut back to the length.
+- **Qwen3-8B (FLUX.2 Klein 9B)**, with its own output head, is as dependable as Qwen3-VL 8B: on length, cleanly ended, every subject and all lettering kept. It adds a mood word in about a quarter of its texts. Thinking works on it. Through a borrowed head (see above) about one text in ten does not come to an end by itself and is cut back to the length.
 - **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering, but it adds sounds, smells and "atmosphere" in about a third of its texts whatever the instruction says, sometimes invents a sign, and now and then runs into a loop (the text before the loop is kept).
 - **The P-H3-Image encoder** is the weakest writer. It is a Qwen3-VL 4B whose layers differ from the stock model: it paraphrases your prompt away in most answers (your prompt is then put in front, see above), and in about one text in ten it breaks off and starts talking to itself (the text is cut there). Expect plainer expansions and the occasional prompt left as typed.
 

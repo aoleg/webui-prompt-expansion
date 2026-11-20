@@ -3,8 +3,9 @@
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
+from .fetch import HeadDownload, existing, failure
 from .generator import UnsupportedEncoder
 from .headfile import find_head, library_files, loaded_files
 
@@ -13,6 +14,14 @@ QWEN_PAD_ID = 151643  # what Forge's own engines pad Qwen prompts with
 
 # control tokens a request must not carry into the chat template
 _CONTROL = re.compile(r"<\|[A-Za-z0-9_]+\|>|</?think>")
+
+
+class HeadMissing(UnsupportedEncoder):
+    """The encoder can write, but its output head is not on disk; `download` says where it can be had."""
+
+    def __init__(self, text: str, label: str, download: HeadDownload):
+        super().__init__(text)
+        self.label, self.download = label, download
 
 
 def plain(text: str) -> str:
@@ -35,12 +44,30 @@ class Spec:
     label: str
     tied: Optional[bool]  # True: output table = input table. False: separate head. None: read the stack's config.
     think: str  # "never": the model has no reasoning block. "optional": offered in the UI. "closed": always an empty block.
+    own_heads: tuple[str, ...] = ()  # headfile.fingerprint of the model's own output head, as published
+    head_download: Optional[HeadDownload] = None  # where that head comes from when the encoder file was saved without it
 
 
 # keyed by the class name of the encoder in backend/nn/llm/llama.py
 SPECS = {
     "Qwen3_4B": Spec("Qwen3-4B", tied=True, think="optional"),
-    "Qwen3_8B": Spec("Qwen3-8B", tied=False, think="optional"),
+    # Qwen publishes this model's head as a shard of its own: one tensor, bf16, 1.24 GB, Apache 2.0. The encoder
+    # in the FLUX.2 Klein 9B files is the unmodified Qwen3-8B (weights equal bit for bit), so it is the true head.
+    "Qwen3_8B": Spec(
+        "Qwen3-8B",
+        tied=False,
+        think="optional",
+        own_heads=("acaf662d0d0b5f25d89228ea13faaa958516262966d4bb032247d6137d9f642f",),
+        head_download=HeadDownload(
+            repo="Qwen/Qwen3-8B",
+            revision="b968826d9c46dd6066d109eabc6255188de91218",
+            filename="model-00005-of-00005.safetensors",
+            size=1244659840,
+            sha256="20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff",
+            save_as="qwen_3_8b_lm_head.safetensors",
+            licence="Apache 2.0",
+        ),
+    ),
     "Qwen3VL": Spec("Qwen3-VL", tied=None, think="never"),
     # Qwen3.5 reasons by default and at great length (1,536 tokens were not enough for one image request on the
     # MOSS-Image encoder), so its reasoning block is always closed and thinking is not offered.
@@ -66,6 +93,7 @@ class Adapter:
     head_file: Optional[str] = None  # the file to read a separate output head from
     head_borrowed: bool = False  # the head comes from another model's file, not from the loaded encoder's own
     think: str = "optional"  # see Spec.think
+    head_download: Optional[HeadDownload] = None  # see Spec.head_download
 
     def prompt(self, system: str, user: str, thinking: bool = False) -> str:
         think = None if self.think == "never" else bool(thinking and self.can_think)
@@ -93,13 +121,16 @@ def _token_id(tokenizer, token: str) -> Optional[int]:
     return found if isinstance(found, int) and found >= 0 and found != unknown else None
 
 
-def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: Optional[Iterable[str]] = None) -> Adapter:
+def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: Optional[Iterable[str]] = None, fetch: Optional[Callable] = None) -> Adapter:
     """The adapter for the loaded checkpoint's text encoder. Raises UnsupportedEncoder with the reason.
 
     head_files: where to look for a separate output head first; by default the files Forge loaded the model from.
     library: other files a head of the same size may be borrowed from; by default every text encoder file Forge lists.
+    fetch: called as fetch(download, loaded files, encoder name, what happens otherwise) when the model's own head
+        is not on disk and can be downloaded; returns the path of the downloaded file or None. Without it nothing is
+        downloaded (the panel's status line must never start a download).
     """
-    reasons = []
+    reasons, missing = [], None
     for engine in _engines(sd_model):
         transformer = getattr(getattr(engine, "text_encoder", None), "transformer", None)
         tokenizer = getattr(getattr(engine, "tokenizer", None), "tokenizer", None)
@@ -128,30 +159,59 @@ def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: 
 
         head_file, head_borrowed = None, False
         if not tied and getattr(transformer.model, "lm_head", None) is None:
-            head_file, head_borrowed = find_head(config.vocab_size, config.hidden_size, loaded_files() if head_files is None else head_files, library_files() if library is None else library)
+            loaded = list(loaded_files() if head_files is None else head_files)
+            shelf = list(library_files() if library is None else library)
+            if library is None and spec.head_download is not None:
+                shelf += existing(spec.head_download, loaded)  # downloaded in this session; Forge's list is older
+            head_file, head_borrowed = find_head(config.vocab_size, config.hidden_size, loaded, shelf, spec.own_heads)
+            if (head_file is None or head_borrowed) and spec.head_download is not None and fetch is not None:
+                otherwise = f"Until then {label} writes through the head in {os.path.basename(head_file)}, which is clearly worse." if head_file else "Until then the prompts are used as typed."
+                fetched = fetch(spec.head_download, loaded, label, otherwise)
+                if fetched:
+                    head_file, head_borrowed = fetched, False
             if head_file is None:
-                reasons.append(f"{label} needs its output head: the loaded encoder file has none, and no other text encoder file holds one of that size ({config.vocab_size} x {config.hidden_size})")
+                source = f"; put {spec.head_download.describe()} into a text encoder folder" if spec.head_download else ""
+                reasons.append(f"{label} needs its output head: the loaded encoder file has none, and no other text encoder file holds one of that size ({config.vocab_size} x {config.hidden_size}){source}")
+                if spec.head_download is not None:
+                    missing = (label, spec.head_download)
                 continue
 
-        # Through a borrowed head the reasoning mode does not work: on Qwen3-8B with the head of Qwen3-VL 8B, three
-        # of four answers never left the reasoning block. The block is then always closed, and thinking not offered.
+        # Through a borrowed head the reasoning mode does not work: on Qwen3-8B with the head of Qwen3-VL 8B the
+        # opening tag comes out as a stray character and some answers never leave the reasoning block (with its own
+        # head: four of four reason and answer cleanly). The block is then always closed, and thinking not offered.
         think = "closed" if head_borrowed and spec.think == "optional" else spec.think
 
         # the vocabulary decides the ids: Qwen3 and Qwen3.5 number their control tokens differently
         end, stop = _token_id(tokenizer, "<|im_end|>"), _token_id(tokenizer, "<|endoftext|>")
         stop_ids = tuple(token for token in (end, stop) if token is not None) or QWEN_STOP_IDS
         clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
-        return Adapter(label, transformer, tokenizer, tied, think == "optional", stop_ids, getattr(clip, "patcher", None), stop if stop is not None else QWEN_PAD_ID, head_file, head_borrowed, think)
+        return Adapter(label, transformer, tokenizer, tied, think == "optional", stop_ids, getattr(clip, "patcher", None), stop if stop is not None else QWEN_PAD_ID, head_file, head_borrowed, think, spec.head_download)
+    if missing is not None:
+        raise HeadMissing("; ".join(reasons), *missing)
     raise UnsupportedEncoder("; ".join(reasons) or "this checkpoint's text encoder cannot write text")
 
 
+def _own_head(download: HeadDownload) -> str:
+    """For the status line: what will happen about a head that can be downloaded."""
+    if failure(download) is not None:
+        return f"Its own head could not be downloaded ({failure(download)}); the console says how to get it by hand, and the refresh button lets the next job try again."
+    return f"Its own head ({download.describe()}, {download.gigabytes()}) is downloaded when you first generate with this panel on."
+
+
 def status(sd_model) -> tuple[bool, str]:
-    """For the UI: whether expansion works with the loaded checkpoint, and one line saying so."""
+    """For the UI: whether expansion works with the loaded checkpoint, and one line saying so. Downloads nothing."""
     if sd_model is None:
         return False, "No checkpoint is loaded."
     try:
         adapter = find_adapter(sd_model)
-        borrowed = f" Its file has no output head; the one in {os.path.basename(adapter.head_file)} is used." if adapter.head_borrowed else ""
+        borrowed = ""
+        if adapter.head_borrowed:
+            borrowed = f" Its file has no output head; the one in {os.path.basename(adapter.head_file)} is used."
+            if adapter.head_download is not None:
+                borrowed += " " + _own_head(adapter.head_download)
         return True, f"Writer: {adapter.label} (this checkpoint's text encoder).{borrowed}"
+    except HeadMissing as reason:
+        ready = failure(reason.download) is None
+        return ready, f"{'Writer' if ready else 'Not available for this checkpoint'}: {reason.label} (this checkpoint's text encoder). Its file has no output head. {_own_head(reason.download)}"
     except UnsupportedEncoder as reason:
         return False, f"Not available for this checkpoint: {reason}."

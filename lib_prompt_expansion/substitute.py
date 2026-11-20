@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from . import cleanup
+from . import fetch as head_fetch
 from . import presets as preset_files
 from .adapters import find_adapter
 from .generator import UnsupportedEncoder
@@ -120,7 +121,21 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
         report.notes.append("no prompts")
         return
     if adapter is None:
-        adapter = find_adapter(p.sd_model)
+
+        def stopped():
+            return bool(state is not None and (getattr(state, "interrupted", False) or getattr(state, "skipped", False) or getattr(state, "stopping_generation", False)))
+
+        def announce(line):
+            if state is not None:
+                state.textinfo = line
+
+        def fetch(download, loaded, encoder, otherwise):
+            try:
+                return head_fetch.ensure(download, loaded, encoder=encoder, fallback=otherwise, should_stop=stopped, announce=announce)
+            finally:
+                announce(None)
+
+        adapter = find_adapter(p.sd_model, fetch=fetch)
     report.writer = adapter.label
     if getattr(adapter, "head_borrowed", False):
         report.notes.append("output head from " + os.path.basename(adapter.head_file))

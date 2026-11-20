@@ -9,8 +9,13 @@ the same size is borrowed from another text encoder file that Forge knows about.
 are close relatives: Qwen3-VL 8B is built on Qwen3-8B (their input tables match at 0.98 cosine), and Qwen3-8B
 writes well through its head. A head of the right size from an unrelated model would write nonsense; the loop
 guard and the clean-up then leave the prompts as typed.
+
+The model's own head may also sit in a file of its own: Qwen publishes the head of Qwen3-8B as one shard of its
+repository, a file that holds nothing else. Such a file is recognised by a fingerprint of its first megabyte and is
+then the encoder's true head, not a borrowed one.
 """
 
+import hashlib
 import json
 import os
 import struct
@@ -19,26 +24,32 @@ from typing import Iterable, Optional
 import torch
 
 KEY = "lm_head.weight"
+PRINT_BYTES = 1 << 20  # how much of the head's data a fingerprint covers
 _headers: dict[tuple, tuple] = {}
+_prints: dict[tuple, Optional[str]] = {}
 
 
 def _header(path: str) -> tuple:
-    """(shape of lm_head.weight or None, number of tensors) of a .safetensors file. Only its header is read."""
+    """(shape of lm_head.weight or None, number of tensors, where its data starts) of a .safetensors file.
+
+    Only the header is read.
+    """
     try:
         stamp = (os.path.abspath(path), os.path.getmtime(path), os.path.getsize(path))
     except OSError:
-        return None, 0
+        return None, 0, 0
     if stamp not in _headers:
-        found = (None, 0)
+        found = (None, 0, 0)
         if path.lower().endswith((".safetensors", ".sft")):
             try:
                 with open(path, "rb") as handle:
                     (size,) = struct.unpack("<Q", handle.read(8))
                     if size < 100_000_000:
                         header = json.loads(handle.read(size))
-                        found = (header.get(KEY, {}).get("shape"), len(header) - ("__metadata__" in header))
-            except (OSError, ValueError, struct.error):
-                found = (None, 0)
+                        entry = header.get(KEY) or {}
+                        found = (entry.get("shape"), len(header) - ("__metadata__" in header), 8 + size + (entry.get("data_offsets") or [0])[0])
+            except (OSError, ValueError, struct.error, AttributeError, TypeError):
+                found = (None, 0, 0)
         _headers[stamp] = found
     return _headers[stamp]
 
@@ -46,6 +57,22 @@ def _header(path: str) -> tuple:
 def head_shape(path: str) -> Optional[list]:
     """The shape of lm_head.weight in a .safetensors file, or None."""
     return _header(path)[0]
+
+
+def fingerprint(path: str) -> Optional[str]:
+    """SHA-256 of the first megabyte of lm_head.weight as stored in the file, or None when the file has no head."""
+    shape, _, start = _header(path)
+    if shape is None:
+        return None
+    stamp = (os.path.abspath(path), os.path.getmtime(path), os.path.getsize(path))
+    if stamp not in _prints:
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(start)
+                _prints[stamp] = hashlib.sha256(handle.read(PRINT_BYTES)).hexdigest()
+        except OSError:
+            _prints[stamp] = None
+    return _prints[stamp]
 
 
 def find_head_file(paths: Iterable[str], vocab_size: int, hidden_size: int) -> Optional[str]:
@@ -66,18 +93,25 @@ def library_files() -> list[str]:
         return []
 
 
-def find_head(vocab_size: int, hidden_size: int, loaded: Iterable[str], library: Iterable[str]) -> tuple[Optional[str], bool]:
-    """Where to read a head of this size from, and whether it is borrowed from a file other than the loaded ones.
+def find_head(vocab_size: int, hidden_size: int, loaded: Iterable[str], library: Iterable[str], own_heads: Iterable[str] = ()) -> tuple[Optional[str], bool]:
+    """Where to read a head of this size from, and whether it is borrowed from another model.
 
-    The loaded encoder's own file comes first. Among the other files a file that holds little besides a head (one
-    saved for this purpose) is preferred to a whole encoder that happens to have a head of the same size.
+    The loaded encoder's own file comes first. Among the other files, one that carries the model's own head
+    (a fingerprint in `own_heads`) is taken before any other and is not borrowed. Then a file that holds little
+    besides a head (one saved for this purpose) is preferred to a whole encoder that happens to have a head of the
+    same size.
     """
+    own_heads = set(own_heads)
     loaded = [path for path in loaded if path]
     own = find_head_file(loaded, vocab_size, hidden_size)
     if own is not None:
         return own, False
     known = {os.path.abspath(path) for path in loaded}
     others = [path for path in library if path and os.path.abspath(path) not in known and head_shape(path) == [vocab_size, hidden_size]]
+    if own_heads:
+        true = sorted((path for path in others if fingerprint(path) in own_heads), key=lambda path: os.path.basename(path).lower())
+        if true:
+            return true[0], False
     others.sort(key=lambda path: (_header(path)[1] > 4, os.path.basename(path).lower()))
     return (others[0], True) if others else (None, False)
 

@@ -11,8 +11,50 @@ a bus stop on a rainy street at night
 becomes, with the MOSS-Image encoder and the "Legible world" preset:
 
 ```
-A bus stop on a rainy street at night features a shelter with a red roof where water drips from the edge onto the wet pavement. A single passenger stands under the awning, holding a clear umbrella that reflects the neon glow of nearby signs. Above the shelter, a blue sign reads "Route 42" while a smaller white panel below it displays the destination "Central Station". To the left, a yellow taxi is parked with its license plate reading "NYC-884", and its headlights cut through the mist. Further down the street, a shop window displays a poster with the text "Open Late" in bright green letters against a dark background. The asphalt glistens under the streetlights, creating long reflections of the orange traffic signals and the distant city skyline. ...
+A bus stop on a rainy street at night features a translucent plastic shelter with a red and white striped pole standing firmly in the wet asphalt. Raindrops streak down the glass panels, blurring the reflection of sodium-vapor streetlights that cast an orange glow over the puddles. A single passenger in a yellow raincoat waits beneath the roof, looking toward the dark road where water ripples around their boots. Above the entrance, a small illuminated sign reads "BUS STOP" in bright white letters, while a blue rectangular board below it displays the route number "42" and the destination "CITY CENTER" in crisp white text. The ground is slick with oil sheen from passing cars, mirroring the faint red taillights of a vehicle approaching slowly in the distance. Shadows stretch long across the sidewalk as the storm continues to pour, soaking the concrete and pooling near the curb.
 ```
+
+## Examples
+
+The pictures below were made in Forge Neo by the extension's author with one short prompt each. The lathe pictures are consecutive seeds, not a selection. The expanded tram is the best of four tries made while the wording of the preset was being tuned.
+
+### Krea 2: the same seeds without and with expansion
+
+![Krea 2, four seeds as typed and the same four seeds expanded](img/krea2_lathe.jpg)
+
+Prompt as typed:
+
+> A close-up of a working man in a helmet working at a lathe, shot on Kodachrome.
+
+Expanded prompt of the first image in the lower row (preset *Faithful detail*; each image gets a text of its own):
+
+> A close-up of a working man in a helmet working at a lathe, shot on Kodachrome. A close-up of a working man in a helmet, sweat glistening on his brow as he grips the handle of a lathe with calloused hands, his focused gaze fixed on the spinning metal rod; the helmet’s visor reflects faint industrial light, its surface slightly dusty from prolonged use. The lathe hums softly beneath him, its metallic body gleaming under warm, golden Kodachrome tones that saturate every curve and shadow. His work clothes are coarse denim, frayed at the elbows, stained with grease and grit. Behind him, a dimly lit workshop holds shelves of tools and coiled wires, bathed in soft ambient glow. The camera hovers just above eye level, capturing the motion blur of the rotating spindle and the rhythmic clink of metal against steel, all rendered in Kodachrome’s rich, saturated hues — deep reds, amber yellows, and cool grays — with sharp detail and a slight vignette framing the scene.
+
+What changes. The typed prompt gives four flash-lit snapshots: a man, a machine part, and a nearly black or plain background; one helmet carries garbled lettering. With the expanded prompt every picture has a workshop around the man (tool racks, shelves, a lamp, a window), a visor or face shield on the helmet, grease on the denim and on the hands, a brass workpiece and metal chips, and a named light source. The four pictures also differ more from one another: a three-quarter view of the whole lathe, a profile, a tight close-up of the hands, a view along the spindle. The price is a shared look: every text speaks of warm, golden Kodachrome tones, so all four are warm and golden, and one gained a slide-film border.
+
+### MOSS-Image: a new text for every image
+
+![MOSS-Image, nine seeds, each with its own expanded prompt](img/moss_lathe.jpg)
+
+The same typed prompt. Expanded prompt of the first image (preset *Attribute caption*):
+
+> A close-up of a working man in a helmet working at a lathe, shot on Kodachrome. A close-up captures a working man wearing a yellow hard helmet, his face partially obscured by safety goggles as he operates a large industrial lathe. The machine itself is painted a matte grey with visible silver metallic gears and black rubber belts connecting its components. His hands grip a lever on the lathe's control panel, which features circular dials and rectangular switches arranged in a grid pattern. Sparks fly from the contact point between the spinning metal workpiece and the cutting tool, illuminating the immediate area with bright orange light against the darker machinery. The man wears a blue work shirt with rolled-up sleeves, revealing forearms dusted with fine grey particles. Behind him, a blurred wall of pale green panels provides a neutral backdrop to the mechanical activity. The entire scene is rendered in the rich, saturated tones characteristic of Kodachrome film, emphasizing deep reds in the shadows and vibrant highlights on the metal surfaces.
+
+What you get. Each picture follows its own text closely: the yellow helmet, the sparks and the control panel with round dials in the first image, the blue wall with the stack of crates in the third, the white helmet with ventilation holes in the sixth are all in the texts. The set is varied in framing, colour and setting, and every image is clean and evenly lit. The look is that of a present-day industrial photograph rather than of 1950s Kodachrome, and in two of the nine images the close-up turned into a wider shot, because a caption that lists the things in the background asks for them to be shown.
+
+### Lettering: the Legible world preset
+
+![Krea 2, a tram as typed and with the Legible world preset](img/krea2_tram.jpg)
+
+Prompt as typed:
+
+> A classic red-and-yellow tram from the 1950s on tracks on a town square.
+
+Expanded prompt of the right image (preset *Legible world*):
+
+> A classic red-and-yellow tram from the 1950s glides along tracks embedded in a sunlit town square, its polished metal body gleaming under overhead lamps. The tram’s front window reflects the pale blue sky and scattered clouds, while its side panels bear faded lettering: “TOWNLINE TRAMWAY” in bold black capitals above “ROUTE 3 TO CENTRAL STATION.” Its wheels click softly against the rails as it moves past a stone bench and a lamppost with a brass globe. A small sign beside the tram reads “OPEN DAILY 8 AM–6 PM” in green letters on white background. Behind it, a café awning displays “COFFEE & CROISSANTS” in cursive script. The tram’s destination board flickers with “CENTRAL STATION” in bright yellow, and its license plate reads “TRM-5472.”
+
+What changes. Left to itself, the model knows that a tram has a route number and a destination board but not what they say: the board reads "ARPE", the number is "06", and the lettering along the side is a squiggle. With the expanded prompt every piece of writing has been decided beforehand, in capitals, and the model draws it: the company name on the roof board, the destination, the plate "TRM-5472", the kerb sign and the café awning. One board lost a letter ("CENTRAL TATION"); short texts in capitals are what the image models get right most often, which is why the preset asks for them.
 
 ## Supported text encoders
 
@@ -68,7 +110,7 @@ Every image of a batch gets its own expansion, so one typed prompt gives a varie
 | Preset | What it asks for |
 |---|---|
 | Faithful detail | Your prompt, continued with the look of each subject, materials, setting, framing and light. Adds no lettering. |
-| Legible world | The same, and every surface that would carry writing in real life gets short, plausible text: a shop name, a bus route and destination, a license plate. |
+| Legible world | The same, and things that carry writing in real life get short, plausible text in capitals: a shop name, a bus route and destination, a license plate. At most four pieces; in the language and script of the place. |
 | Photographic | A real photograph: camera distance and angle, lens, depth of field, light source, time of day. |
 | Cinematic still | A single frame from a film: shot size, staging, light sources, colour palette. |
 | Illustration | A drawn or painted artwork. Uses the medium you name, or picks one that suits the subject. |

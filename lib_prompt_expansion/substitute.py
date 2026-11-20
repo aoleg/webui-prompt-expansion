@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 from . import cleanup
 from . import fetch as head_fetch
 from . import presets as preset_files
+from . import weights as prompt_weights
 from .adapters import find_adapter
 from .generator import UnsupportedEncoder
 from .sampling import SamplingOptions
@@ -98,12 +99,17 @@ def expand(
     adapter: Any = None,
     comments_follow: bool = False,
     writer_factory: Callable = Writer,
+    weights: bool = True,
 ) -> Report:
-    """Rewrite p.all_prompts in place. Never raises: on any failure the prompts stay as typed and the report says why."""
+    """Rewrite p.all_prompts in place. Never raises: on any failure the prompts stay as typed and the report says why.
+
+    weights: (phrase:1.4) and the like are taken out before the writing and marked again in the result. False when
+        Forge's Emphasis setting is "None", where brackets are plain characters for every extension too.
+    """
     report = Report(total=len(getattr(p, "all_prompts", None) or []))
     started = time.perf_counter()
     try:
-        _expand(p, settings, state, adapter, comments_follow, writer_factory, report)
+        _expand(p, settings, state, adapter, comments_follow, writer_factory, report, weights)
     except UnsupportedEncoder as reason:
         report.writer = ""
         report.notes = [f"not available for this checkpoint: {reason}"]
@@ -114,7 +120,7 @@ def expand(
     return report
 
 
-def _expand(p, settings, state, adapter, comments_follow, writer_factory, report):
+def _expand(p, settings, state, adapter, comments_follow, writer_factory, report, weights=True):
     global last_start_seed
     originals = list(p.all_prompts or [])
     if not originals:
@@ -152,7 +158,10 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
         report.start_seed = start_seed
 
     # one request per prompt; with sampling off equal requests share one answer
-    parts = [split_tags(original) for original in originals]
+    # extra-network tags and weights are not for the encoder: they are taken out here and put back at the end
+    tagged = [split_tags(original) for original in originals]
+    marks = [prompt_weights.strip(text) if weights else prompt_weights.Stripped(text) for text, _tags in tagged]
+    parts = [(mark.plain, tags) for mark, (_text, tags) in zip(marks, tagged)]
     seeds = [start_seed + index for index in range(len(originals))]
     keys: list[Optional[tuple]] = []
     for (text, _tags), seed in zip(parts, seeds):
@@ -196,10 +205,12 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
     expanded: list[str] = []
     used_seeds: list[Optional[int]] = []
     sources: list[Optional[str]] = []
-    for original, (text, tags), key, seed in zip(originals, parts, keys, seeds):
+    for original, (text, tags), key, seed, mark in zip(originals, parts, keys, seeds, marks):
         answer = answers.get(key) if key is not None else None
         if answer:
-            expanded.append(join_tags(answer, tags))
+            marked = prompt_weights.apply(answer, mark)
+            report.notes += marked.notes()
+            expanded.append(join_tags(marked.text, tags))
             used_seeds.append(seed if sampled else None)
             sources.append(original)
             report.expanded += 1

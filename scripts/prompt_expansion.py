@@ -121,5 +121,7 @@ class PromptExpansionScript(scripts.Script):
             PromptExpansionScript.warned_order = True
             print(f"[{TITLE}] Dynamic Prompts runs after this extension, so wildcards are expanded as text. Check Settings > Callbacks, or the folder name (webui-prompt-expansion).")
 
-        report = substitute.expand(p, settings, state=shared.state, comments_follow=comments_follow)
+        # with Emphasis set to "None" brackets are plain characters, for Forge and for weight extensions alike
+        weights = getattr(shared.opts, "emphasis", "Original") != "None"
+        report = substitute.expand(p, settings, state=shared.state, comments_follow=comments_follow, weights=weights)
         print(f"[{TITLE}] {report.line()}")

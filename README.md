@@ -86,6 +86,7 @@ Writing your own instruction for a 4B model: keep it under about 150 words, say 
 - **Batches.** All prompts of a job are written together, in passes of up to "Prompts per pass" (default 10). A pass takes about as long as a single prompt, so a batch of 8 costs the time of one. If your batch is larger than the pass size, raise the pass size rather than wait for a second pass.
 - **Dynamic Prompts and wildcards** are resolved first; the encoder only sees the final text of each image.
 - **LoRA and other `<name:value>` tags** are taken out before the encoder sees the prompt and put back at the end.
+- **Weights** such as `(red car:1.4)`, `((fog))`, `[crowd]` and `(dress:-1)` are taken out before the encoder sees the prompt and marked again in the expanded text: a phrase the text kept is wrapped again where it first occurs, a phrase whose words moved apart gets each word wrapped, and a phrase the text lost is added at the end. A phrase with a weight of zero or less (NegPiP's "less of this") is never shown to the encoder, which would only write more about it, and goes to the end as typed. When your prompt uses a weight with a number, brackets the encoder writes itself are escaped (`\(aside\)`) so that they are not read as weights. Forge Neo itself treats brackets as plain characters for the models listed above; weights act through an extension such as [NegPiP](https://github.com/aoleg/neo-krea2-negpip). With Forge's Emphasis setting on "None" the extension leaves them alone as well.
 - **The negative prompt** is never touched.
 - **Hires fix** uses the expanded prompt, unless you typed a separate hires prompt.
 - **Infotext.** The prompt saved with the image is the expanded one, so pasting it back reproduces the image with the extension off. Three keys are added: `Prompt expansion` (the preset), `Expansion seed` and `Expansion source` (what you typed).
@@ -132,7 +133,7 @@ No refusals were seen with ordinary prompts. A stock model may still decline som
 ## Limits
 
 - The expansion is not reproducible across batch sizes. The same job with the same expansion seed gives the same text; the same prompt in a batch of 4 and a batch of 8 may not. The infotext holds the text that was used.
-- Prompt-editing syntax in your own prompt (`[a:b:0.5]`, `(word:1.2)`, `BREAK`) is given to the encoder as plain text and will usually not survive the rewrite.
+- Prompt editing (`[a:b:0.5]`, `[a|b]`) and `BREAK` in your own prompt are given to the encoder as plain text and will usually not survive the rewrite. A negative phrase keeps the encoder from being told about a thing; it cannot stop the encoder from writing about it unasked.
 - Reference images are not shown to the encoder. In img2img and edit workflows the expansion is written from the text alone.
 - Qwen-Image (Qwen2.5-VL), ERNIE-Image (Ministral 3), Lumina 2 and Anima are not supported.
 

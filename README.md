@@ -108,7 +108,7 @@ int8 with ConvRot is the best of the three to run: measured against the bf16 bui
 - The stock model comes from [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) (two files, Apache 2.0), or from a stock file in your text encoder folders where one fits the choice. For int8 with ConvRot and for bf16 only a file that is stored whole in full precision fits: an fp8 file, or an nvfp4 file with some layers kept whole, is passed over and Qwen's files are downloaded.
 - The connector is taken from Pruna's encoder file on disk, under either of its names (`p-image-oss_text_encoder_…` or the older `p-h3-image_text_encoder_…`). If there is none, only its 262 MB are downloaded from [PrunaAI/P-Image-OSS-Comfy](https://huggingface.co/PrunaAI/P-Image-OSS-Comfy).
 - No model is loaded. Quantising takes well under a minute. Downloads are checked against their SHA-256, resume after an interruption, and are deleted after the build.
-- The result, `p-image-oss_text_encoder_stock_qwen3vl_4b_<precision>.safetensors`, lands in your text encoder folder. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder.
+- The result, `p-image-oss_text_encoder_stock_qwen3vl_4b_<precision>.safetensors`, is built next to Pruna's encoder file (in a text encoder folder, if the connector had to be downloaded). Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder.
 
 Without the web UI: `python -m lib_prompt_expansion.hybrid <text encoder folder>` in the extension's folder, with Forge's Python; `--plan` only says what would be done, `--precision int8_convrot`, `bf16` or `copy` chooses the kind.
 

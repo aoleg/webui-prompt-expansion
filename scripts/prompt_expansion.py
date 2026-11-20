@@ -45,8 +45,7 @@ def pruna_hint() -> str:
 
         for path in loaded_files():
             if hybrid.kind(path) == "connector":
-                built_here = hybrid.read_header(path)[1].get("built_by")
-                return "" if built_here else " Pruna's own encoder writes poor text; *Build stock encoder* under Advanced makes one that writes well."
+                return "" if hybrid.built_here(path) else " Pruna's own encoder writes poor text; *Build stock encoder* under Advanced makes one that writes well."
     except Exception:  # noqa: BLE001 - a hint is not worth an error in the panel
         pass
     return ""

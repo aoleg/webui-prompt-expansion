@@ -75,21 +75,31 @@ def configured_folders() -> list[str]:
     return [os.path.abspath(folder) for folder in folders]
 
 
+def _same(path: str) -> str:
+    """A path for comparing: absolute, and on Windows without regard to case ("s:\\Models" is "S:\\models")."""
+    return os.path.normcase(os.path.abspath(path))
+
+
 def _inside(path: str, folder: str) -> bool:
     try:
-        return os.path.commonpath([os.path.abspath(path), folder]) == folder
+        return os.path.commonpath([_same(path), _same(folder)]) == _same(folder)
     except ValueError:  # another drive
         return False
 
 
 def target_folder(loaded: Iterable[str], folders: Optional[Iterable[str]] = None) -> Optional[str]:
-    """Where a head is saved: the text encoder folder the loaded encoder came from, else the first one configured."""
+    """Where a head is saved: the text encoder folder the loaded encoder came from.
+
+    When no loaded file lies in a configured folder, a folder that is named for text encoders is taken before any
+    other (an install that borrows ComfyUI's folders lists its old "clip" folder first), then the first one.
+    """
     folders = [os.path.abspath(folder) for folder in (configured_folders() if folders is None else folders)]
     for path in loaded:
         for folder in folders:
             if path and _inside(path, folder):
                 return folder
-    return folders[0] if folders else None
+    named = [folder for folder in folders if "text_encoder" in os.path.basename(folder).lower()]
+    return (named or folders or [None])[0]
 
 
 def target_path(source: HeadDownload, loaded: Iterable[str], folders: Optional[Iterable[str]] = None) -> Optional[str]:

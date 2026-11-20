@@ -187,6 +187,15 @@ class Plan:
         return f"**Will build** `{name}`\n\n- Stock Qwen3-VL 4B: {stock}\n- Pruna's connector: {connector}\n- Into: `{self.folder}`"
 
 
+def built_here(path: str) -> bool:
+    """Is this an encoder that was put together from the stock model and Pruna's connector, not Pruna's own file?"""
+    try:
+        metadata = read_header(path)[1]
+    except (OSError, ValueError, struct.error):
+        return False
+    return bool(metadata.get("built_by") or metadata.get("built_from"))
+
+
 def can_quantise() -> bool:
     try:
         import torch  # noqa: F401
@@ -195,8 +204,11 @@ def can_quantise() -> bool:
     return True
 
 
-def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = None, connector: Optional[str] = None, precision: Optional[str] = None) -> Plan:
-    """What would be built in `folder`, and from what. files: the encoder files to look through for sources.
+def make_plan(folder: Optional[str], files: Iterable[str] = (), stock: Optional[str] = None, connector: Optional[str] = None, precision: Optional[str] = None, beside: bool = False) -> Plan:
+    """What would be built, where, and from what. files: the encoder files to look through for sources.
+
+    folder: where to build. beside: build next to the encoder file the connector is taken from instead (Pruna's own
+    file, which is in the right place by definition); `folder` is then only used when the connector is downloaded.
 
     precision: "int8_convrot" (quantised here from the full-precision model; the default where torch is at hand),
     "bf16" (Qwen's weights as they are), or "copy" (whatever a stock file on disk holds, nothing downloaded if there
@@ -210,7 +222,7 @@ def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = Non
         raise BuildError("int8 with ConvRot needs torch, which this Python does not have")
     if connector is None:
         # Pruna's own file before a file built here (their connectors are the same bytes; the name reads better)
-        candidates = sorted((path for path in files if kind(path) == "connector"), key=lambda path: bool(read_header(path)[1].get("built_by")))
+        candidates = sorted((path for path in files if kind(path) == "connector"), key=built_here)
         connector = candidates[0] if candidates else None
     elif kind(connector) != "connector":
         raise BuildError(f"{connector} has no text connector")
@@ -229,6 +241,10 @@ def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = Non
         stock = min(found, key=lambda path: (rank.get(_stored(path), 2), os.path.getsize(path))) if found else None
     elif precision == INT8 and not is_full_precision(stock):
         raise BuildError(f"{os.path.basename(stock)} is not a full-precision file (it is {_stored(stock)}); int8 with ConvRot is made from the full-precision model. Leave the file out and Qwen's own files are downloaded")
+    if beside and connector is not None:
+        folder = os.path.dirname(os.path.abspath(connector))
+    if not folder:
+        raise BuildError("Forge's text encoder folder is not known")
     label = INT8 if precision == INT8 else (_stored(stock) if stock is not None else "bf16")
     target = os.path.join(folder, f"p-image-oss_text_encoder_stock_qwen3vl_4b_{label}.safetensors")
     downloads = (0 if stock else sum(part.size for part in QWEN)) + (0 if connector else CONNECTOR_BYTES)
@@ -592,19 +608,19 @@ def build(
 def press(armed: str, folder: Optional[str], files: Iterable[str], **options) -> tuple[str, str]:
     """The panel's button. The first press says what would be done and arms it; a second press on the same plan does it.
 
+    The file is built next to Pruna's encoder; `folder` is where it goes when there is no such file on disk.
+
     Returns (what is armed now, the text to show). While something is armed the button reads "Click again to build".
     Never raises.
     """
     try:
-        if not folder:
-            return "", "Forge's text encoder folder is not known."
-        plan = make_plan(folder, files, precision=options.pop("precision", None))
+        plan = make_plan(folder, files, precision=options.pop("precision", None), beside=True)
         if plan.exists:
             return "", plan.describe()
         if armed != plan.key():
             return plan.key(), plan.describe() + "\n\nProgress is shown in the console."
         target = build(plan, **options)
-        return "", f"**Built** `{os.path.basename(target)}` in `{folder}`. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder."
+        return "", f"**Built** `{os.path.basename(target)}` in `{os.path.dirname(target)}`. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder."
     except BuildError as problem:
         return "", f"**Not built.** {str(problem)[:1].upper()}{str(problem)[1:]}."
     except Exception as problem:  # noqa: BLE001 - a button must answer, whatever happened

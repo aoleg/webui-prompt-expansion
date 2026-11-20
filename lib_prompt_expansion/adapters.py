@@ -1,11 +1,12 @@
 """Which text encoders can write, and how to talk to each: chat format, stop tokens, output head."""
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 from .generator import UnsupportedEncoder
-from .headfile import find_head_file, loaded_files
+from .headfile import find_head, library_files, loaded_files
 
 QWEN_STOP_IDS = (151645, 151643)  # <|im_end|>, <|endoftext|> in the Qwen3 vocabulary
 QWEN_PAD_ID = 151643  # what Forge's own engines pad Qwen prompts with
@@ -62,7 +63,8 @@ class Adapter:
     stop_ids: tuple[int, ...]
     patcher: Any = None  # Forge's model patcher for the text encoder, to load it on the device
     pad_id: int = QWEN_PAD_ID  # fills the left of shorter rows in a batched pass; never attended to
-    head_file: Optional[str] = None  # the encoder file to read a separate output head from
+    head_file: Optional[str] = None  # the file to read a separate output head from
+    head_borrowed: bool = False  # the head comes from another model's file, not from the loaded encoder's own
     think: str = "optional"  # see Spec.think
 
     def prompt(self, system: str, user: str, thinking: bool = False) -> str:
@@ -91,10 +93,11 @@ def _token_id(tokenizer, token: str) -> Optional[int]:
     return found if isinstance(found, int) and found >= 0 and found != unknown else None
 
 
-def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None) -> Adapter:
+def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: Optional[Iterable[str]] = None) -> Adapter:
     """The adapter for the loaded checkpoint's text encoder. Raises UnsupportedEncoder with the reason.
 
-    head_files: where to look for a separate output head; by default the files Forge loaded the model from.
+    head_files: where to look for a separate output head first; by default the files Forge loaded the model from.
+    library: other files a head of the same size may be borrowed from; by default every text encoder file Forge lists.
     """
     reasons = []
     for engine in _engines(sd_model):
@@ -102,29 +105,43 @@ def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None) -> Adapte
         tokenizer = getattr(getattr(engine, "tokenizer", None), "tokenizer", None)
         if transformer is None or tokenizer is None:
             continue
-        name = type(transformer).__name__
+        # An extension may subclass one of Forge's encoders (the P-H3-Image encoder is a Qwen3VL with a connector on
+        # top), so the class is looked up along its ancestry.
+        name = next((cls.__name__ for cls in type(transformer).__mro__ if cls.__name__ in SPECS or cls.__name__ in NOT_YET), type(transformer).__name__)
         spec = SPECS.get(name)
         if spec is None:
             reasons.append(NOT_YET.get(name, f"{name} cannot write text"))
             continue
-        config = transformer.model.config
+        stack = getattr(transformer, "model", None)
+        config = getattr(stack, "config", None)
+        if config is None:
+            reasons.append(f"{type(transformer).__name__} cannot write text")
+            continue
         tied = spec.tied if spec.tied is not None else not getattr(config, "lm_head", False)
         label = spec.label
         if name == "Qwen3VL":
-            label += " 8B" if config.hidden_size == 4096 else " 4B"
+            label += {2560: " 4B", 4096: " 8B"}.get(config.hidden_size, "")
+        if getattr(stack, "norm", None) is None or getattr(config, "final_norm", True) is False:
+            # MiniMax H3's own encoder: Qwen3-VL 32B cut off after 50 of its 64 layers, with no final norm
+            reasons.append(f"{label} is a truncated encoder (no final layers), so it cannot write text".replace("  ", " "))
+            continue
 
-        head_file = None
+        head_file, head_borrowed = None, False
         if not tied and getattr(transformer.model, "lm_head", None) is None:
-            head_file = find_head_file(loaded_files() if head_files is None else head_files, config.vocab_size, config.hidden_size)
+            head_file, head_borrowed = find_head(config.vocab_size, config.hidden_size, loaded_files() if head_files is None else head_files, library_files() if library is None else library)
             if head_file is None:
-                reasons.append(f"{label} needs its output head, and none of the loaded files contains it")
+                reasons.append(f"{label} needs its output head: the loaded encoder file has none, and no other text encoder file holds one of that size ({config.vocab_size} x {config.hidden_size})")
                 continue
+
+        # Through a borrowed head the reasoning mode does not work: on Qwen3-8B with the head of Qwen3-VL 8B, three
+        # of four answers never left the reasoning block. The block is then always closed, and thinking not offered.
+        think = "closed" if head_borrowed and spec.think == "optional" else spec.think
 
         # the vocabulary decides the ids: Qwen3 and Qwen3.5 number their control tokens differently
         end, stop = _token_id(tokenizer, "<|im_end|>"), _token_id(tokenizer, "<|endoftext|>")
         stop_ids = tuple(token for token in (end, stop) if token is not None) or QWEN_STOP_IDS
         clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
-        return Adapter(label, transformer, tokenizer, tied, spec.think == "optional", stop_ids, getattr(clip, "patcher", None), stop if stop is not None else QWEN_PAD_ID, head_file, spec.think)
+        return Adapter(label, transformer, tokenizer, tied, think == "optional", stop_ids, getattr(clip, "patcher", None), stop if stop is not None else QWEN_PAD_ID, head_file, head_borrowed, think)
     raise UnsupportedEncoder("; ".join(reasons) or "this checkpoint's text encoder cannot write text")
 
 
@@ -133,6 +150,8 @@ def status(sd_model) -> tuple[bool, str]:
     if sd_model is None:
         return False, "No checkpoint is loaded."
     try:
-        return True, f"Writer: {find_adapter(sd_model).label} (this checkpoint's text encoder)."
+        adapter = find_adapter(sd_model)
+        borrowed = f" Its file has no output head; the one in {os.path.basename(adapter.head_file)} is used." if adapter.head_borrowed else ""
+        return True, f"Writer: {adapter.label} (this checkpoint's text encoder).{borrowed}"
     except UnsupportedEncoder as reason:
         return False, f"Not available for this checkpoint: {reason}."

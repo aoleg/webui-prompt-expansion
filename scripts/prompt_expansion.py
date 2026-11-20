@@ -65,7 +65,7 @@ class PromptExpansionScript(scripts.Script):
                 with gr.Row():
                     max_tokens = gr.Slider(label="Max new tokens", info="Upper limit for one text", minimum=64, maximum=2048, step=32, value=512, elem_id=self.elem_id("max_tokens"))
                     rows = gr.Slider(label="Prompts per pass", info="How many prompts are written side by side", minimum=1, maximum=32, step=1, value=10, elem_id=self.elem_id("rows"))
-                    thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3-4B and 8B only). Much slower; set Max new tokens to 1500 or more", value=False, elem_id=self.elem_id("thinking"))
+                    thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3-4B; the other encoders ignore it). Much slower; set Max new tokens to 1500 or more", value=False, elem_id=self.elem_id("thinking"))
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)

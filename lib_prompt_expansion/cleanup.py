@@ -302,11 +302,14 @@ _ABSENT_VERB = re.compile(
 )
 # a trailing or inserted clause: ", without any visible text or signs present in the frame"
 _ABSENT_CLAUSE = re.compile(
-    r",?\s*(?:and |but |yet )?(?:with no|without(?: any)?|free of(?: any)?|devoid of(?: any)?)\s+(?:other |additional |visible |surrounding |extra |further |added |written |printed |overlaid |superimposed )*(?:objects or |elements or )?"
+    r",?\s*(?:and |but |yet )?(?:with no|without(?: (?:introducing|adding|including|showing|featuring|displaying|using))?(?: any)?|free of(?: any)?|devoid of(?: any)?)\s+"
+    r"(?:other |additional |visible |surrounding |extra |extraneous |external |unnecessary |distracting |further |added |written |printed |overlaid |superimposed )*(?:objects or |elements or )?"
     + _LETTERING
     + r"(?:(?:,| or| and| nor)\s+(?:other |visible )?"
     + _LETTERING
-    + r")*(?:\s+(?:present|visible|anywhere|at all|of any kind))?(?:\s+(?:in|on|within|across)\s+(?:the |this )?(?:frame|view|scene|image|picture|composition|structure|shot|background|foreground))?",
+    + r")*(?:\s+(?:present|visible|anywhere|at all|of any kind))?(?:\s+(?:in|on|within|across|to)\s+(?:the |this )?(?:frame|view|scene|image|picture|composition|structure|shot|background|foreground))?"
+    # "without any text or abstract interpretation": what follows "or" is absent as well, up to the end of the clause
+    r"(?:\s+(?:or|nor)\s+[^,.;]{1,40}?(?=\s*(?:[,.;]|$)))?",
     re.I,
 )
 

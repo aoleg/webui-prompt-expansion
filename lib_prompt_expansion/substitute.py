@@ -70,6 +70,48 @@ class Report:
         return text
 
 
+class PerImage:
+    """An infotext value that differs from image to image, found by the image's own prompt.
+
+    Forge indexes a list in extra_generation_params by the position inside the current batch, so with a batch count
+    above one every image would get the values of the first batch. A callable is asked for each image instead, and
+    is handed that image's prompt.
+    """
+
+    def __init__(self, prompts: list[str], values: list):
+        self.values = list(values)
+        self._by_prompt = {self._key(prompt): value for prompt, value in zip(prompts, values)}
+
+    @staticmethod
+    def _key(prompt) -> str:
+        return re.sub(r"\s+", " ", EXTRA_NETWORK.sub("", str(prompt or ""))).strip()
+
+    def __call__(self, **names):
+        key = self._key(names.get("prompt_text"))
+        if key in self._by_prompt:
+            return self._by_prompt[key]
+        index = names.get("index")
+        return self.values[index] if isinstance(index, int) and 0 <= index < len(self.values) else None
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self):
+        return len(self.values)
+
+    def __getitem__(self, index):
+        return self.values[index]
+
+    def count(self, value) -> int:
+        return self.values.count(value)
+
+    def __eq__(self, other):
+        return self.values == (other.values if isinstance(other, PerImage) else other)
+
+    def __repr__(self):
+        return f"PerImage({self.values!r})"
+
+
 def split_tags(prompt: str) -> tuple[str, list[str]]:
     """The prompt without its extra-network tags, and the tags in order."""
     tags = EXTRA_NETWORK.findall(prompt)
@@ -230,7 +272,7 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
         p.all_hr_prompts = [new if old == original else old for old, original, new in zip(hires, originals, expanded)]
 
     extra = p.extra_generation_params
-    extra["Prompt expansion"] = [settings.preset_name if source is not None else None for source in sources]
+    extra["Prompt expansion"] = PerImage(expanded, [settings.preset_name if source is not None else None for source in sources])
     if sampled:
-        extra["Expansion seed"] = used_seeds
-    extra["Expansion source"] = sources
+        extra["Expansion seed"] = PerImage(expanded, used_seeds)
+    extra["Expansion source"] = PerImage(expanded, sources)

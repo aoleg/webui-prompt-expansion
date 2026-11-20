@@ -3,6 +3,7 @@
 import os
 
 import gradio as gr
+from lib_prompt_expansion import encode_once
 from lib_prompt_expansion import fetch as head_fetch
 from lib_prompt_expansion import presets as preset_files
 from lib_prompt_expansion import substitute
@@ -73,6 +74,12 @@ class PromptExpansionScript(scripts.Script):
                     max_tokens = gr.Slider(label="Max new tokens", info="Upper limit for one text", minimum=64, maximum=2048, step=32, value=512, elem_id=self.elem_id("max_tokens"))
                     rows = gr.Slider(label="Prompts per pass", info="How many prompts are written side by side", minimum=1, maximum=32, step=1, value=10, elem_id=self.elem_id("rows"))
                     thinking = gr.Checkbox(label="Thinking", info="Reason before writing (Qwen3-4B, and Qwen3-8B with its own output head; the other encoders ignore it). Much slower; set Max new tokens to 1500 or more", value=False, elem_id=self.elem_id("thinking"))
+                encode_all = gr.Checkbox(
+                    label="Encode all prompts at once",
+                    info="With a batch count above one: the text encoder is loaded once for the job, not once for every image. Stands down for weights, input images and hires fix.",
+                    value=True,
+                    elem_id=self.elem_id("encode_all"),
+                )
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)
@@ -89,7 +96,7 @@ class PromptExpansionScript(scripts.Script):
         random.click(fn=lambda: -1, inputs=[], outputs=[seed], show_progress=False)
         reuse.click(fn=lambda: -1 if substitute.last_start_seed is None else substitute.last_start_seed, inputs=[], outputs=[seed], show_progress=False)
 
-        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking, begin]
+        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking, begin, encode_all]
 
     def scripts_after_me(self, p) -> set[str]:
         """Names ("Class@file.py") of the scripts whose process step runs after this one."""
@@ -100,7 +107,7 @@ class PromptExpansionScript(scripts.Script):
             return set()
         return {f"{type(script).__name__}@{os.path.basename(script.filename or '')}" for script in order[mine + 1 :]}
 
-    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, begin=False, *_):
+    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, begin=False, encode_all=True, *_):
         if not enabled:
             return
         instruction = (instruction or "").strip()
@@ -132,3 +139,20 @@ class PromptExpansionScript(scripts.Script):
         weights = getattr(shared.opts, "emphasis", "Original") != "None"
         report = substitute.expand(p, settings, state=shared.state, comments_follow=comments_follow, weights=weights)
         print(f"[{TITLE}] {report.line()}")
+
+        if encode_all and report.expanded:
+
+            def stopped():
+                state = shared.state
+                return bool(getattr(state, "interrupted", False) or getattr(state, "skipped", False) or getattr(state, "stopping_generation", False))
+
+            def announce(line):
+                shared.state.textinfo = line
+
+            p.prompt_expansion_encode_once = encode_once.install(p, weighted=report.weighted, should_stop=stopped, announce=announce)
+
+    def postprocess(self, p, processed, *args):
+        helper = getattr(p, "prompt_expansion_encode_once", None)
+        if helper is not None:
+            helper.release()
+            p.prompt_expansion_encode_once = None

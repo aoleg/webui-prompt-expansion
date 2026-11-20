@@ -55,6 +55,7 @@ class Report:
     start_seed: Optional[int] = None
     seconds: float = 0.0
     notes: list[str] = field(default_factory=list)
+    weighted: bool = False  # a prompt of the job, as it will be encoded, carries a weight
 
     def line(self) -> str:
         if not self.writer:
@@ -268,6 +269,8 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
 
     p.all_prompts = expanded
     p.main_prompt = expanded[0]
+    if weights:
+        report.weighted = any(weight != 1.0 for prompt in expanded for _text, weight in prompt_weights.parse(EXTRA_NETWORK.sub("", prompt)))
     hires = getattr(p, "all_hr_prompts", None)
     if hires and len(hires) == len(originals):
         # the hires pass follows the expansion unless the user typed a separate hires prompt

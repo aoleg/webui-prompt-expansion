@@ -120,7 +120,7 @@ Open the **Prompt Expansion** panel in txt2img or img2img, tick **Enable**, and 
 - **Start with my prompt**: the expansion begins with your prompt, word for word, and continues it. Each preset sets this; it is off for the presets that rewrite or translate.
 - **Length (words)**: how long the result should be. 0 uses the preset's own length. It is a guide, not a count.
 - **Expansion seed**: -1 picks a new random seed for every job. Any other value is the seed of the first prompt; each next prompt of the job gets the next number.
-- **Advanced**: sampling on or off, temperature, top p, the token limit, how many prompts are written side by side, and thinking.
+- **Advanced**: sampling on or off, temperature, top p, the token limit, how many prompts are written side by side, thinking, and whether all prompts of a job are encoded at once.
 
 Every image of a batch gets its own expansion, so one typed prompt gives a varied batch. The console shows one line per job, for example `[Prompt Expansion] 8 of 8 prompts expanded by Qwen3-VL 4B in 9.7 s, seeds from 1234`.
 
@@ -155,6 +155,7 @@ Writing your own instruction for a 4B to 9B model, as measured on these encoders
 ## How it behaves
 
 - **Batches.** All prompts of a job are written together, in passes of up to "Prompts per pass" (default 10). A pass takes about as long as a single prompt, so a batch of 8 costs the time of one. If your batch is larger than the pass size, raise the pass size rather than wait for a second pass.
+- **Batch count.** Forge encodes the prompts of one batch at a time, so with a text of its own for every image it would need the text encoder again for each image, and on a card that cannot hold the image model, the encoder and the VAE together that means reloading models every time. With *Encode all prompts at once* (on by default) all prompts of the job are encoded right after the first one, through Forge's own encoding and into Forge's own cache; the encoder is then loaded once per job. It stands down, and says so in the console, when the prompts carry weights, when the job has an input or reference image, and with hires fix; then Forge encodes one image at a time as before.
 - **Dynamic Prompts and wildcards** are resolved first; the encoder only sees the final text of each image.
 - **LoRA and other `<name:value>` tags** are taken out before the encoder sees the prompt and put back at the end.
 - **Weights** such as `(red car:1.4)`, `((fog))`, `[crowd]` and `(dress:-1)` are taken out before the encoder sees the prompt and marked again in the expanded text: a phrase the text kept is wrapped again where it first occurs, a phrase whose words moved apart gets each word wrapped, and a phrase the text lost is added at the end. A phrase with a weight of zero or less (NegPiP's "less of this") is never shown to the encoder, which would only write more about it, and goes to the end as typed. When your prompt uses a weight with a number, brackets the encoder writes itself are escaped (`\(aside\)`) so that they are not read as weights. Forge Neo itself treats brackets as plain characters for the models listed above; weights act through an extension such as [NegPiP](https://github.com/aoleg/neo-krea2-negpip). With Forge's Emphasis setting on "None" the extension leaves them alone as well.

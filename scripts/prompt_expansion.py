@@ -24,7 +24,28 @@ def status_line() -> str:
     model = sd_models.model_data.sd_model
     if model is None or type(model).__name__ == "FakeInitialModel":
         return "No checkpoint is loaded yet. The text encoder is checked when you generate."
-    return status(model)[1]
+    return status(model)[1] + pruna_hint()
+
+
+STOCK_ENCODER_INFO = (
+    "For P-Image-OSS and MiniMax-H3-Image: builds a text encoder from the stock Qwen3-VL 4B and Pruna's text connector. "
+    "It writes far better text than Pruna's retrained encoder. The first click only says what it would do."
+)
+
+
+def pruna_hint() -> str:
+    """A word in the status line when the loaded text encoder is Pruna's retrained one. Reads file headers only."""
+    try:
+        from lib_prompt_expansion import hybrid
+        from lib_prompt_expansion.headfile import loaded_files
+
+        for path in loaded_files():
+            if hybrid.kind(path) == "connector":
+                built_here = hybrid.read_header(path)[1].get("built_by")
+                return "" if built_here else " Pruna's own encoder writes poor text; *Build stock encoder* under Advanced makes one that writes well."
+    except Exception:  # noqa: BLE001 - a hint is not worth an error in the panel
+        pass
+    return ""
 
 
 class PromptExpansionScript(scripts.Script):
@@ -80,6 +101,21 @@ class PromptExpansionScript(scripts.Script):
                     value=True,
                     elem_id=self.elem_id("encode_all"),
                 )
+                # P-Image-OSS and MiniMax-H3-Image: Pruna's encoder writes poorly, the stock model behind its connector well
+                with gr.Row():
+                    build_stock = gr.Button(value="Build stock encoder for P-Image-OSS", elem_id=self.elem_id("build_stock"), scale=1)
+                    build_text = gr.Markdown(STOCK_ENCODER_INFO, elem_id=self.elem_id("build_stock_text"))
+                build_armed = gr.State("")
+
+        def build_stock_encoder(armed):
+            """First click: say what would be done. Second click on the same plan: do it."""
+            from lib_prompt_expansion import hybrid
+            from lib_prompt_expansion.headfile import library_files, loaded_files
+
+            loaded = loaded_files()
+            return hybrid.press(armed, head_fetch.target_folder(loaded), loaded + library_files())
+
+        build_stock.click(fn=build_stock_encoder, inputs=[build_armed], outputs=[build_armed, build_text])
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)

@@ -82,7 +82,7 @@ What you get. Both texts begin with the typed prompt, word for word, and go on i
 | Krea 2 | Qwen3-VL 4B | |
 | Qwen-Image 2.1 | Qwen3-VL 8B | |
 | MOSS-Image | Qwen3.5 9B | |
-| P-H3-Image, and MiniMax-H3-Image run with the P-H3-Image encoder | Qwen3-VL 4B | Through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo) |
+| P-Image-OSS (formerly P-H3-Image), and MiniMax-H3-Image run with its encoder | Qwen3-VL 4B | Through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo). A better-writing encoder can be built, see below |
 | FLUX.2 Klein 9B | Qwen3-8B | Downloads its output head (1.24 GB) at first use, see below |
 
 All six were run on real encoder files through Forge Neo's own loader.
@@ -92,6 +92,19 @@ All six were run on real encoder files through Forge Neo's own loader.
 The console shows the download and its progress; Interrupt stops it, and the next job goes on where it stopped. If it fails (no connection, a full disk, a folder that cannot be written), the console says why and how to get the file by hand, the job goes on, and the download is tried again after a restart or when you press the panel's refresh button. To do it by hand, download [the file](https://huggingface.co/Qwen/Qwen3-8B/resolve/main/model-00005-of-00005.safetensors) and put it into a text encoder folder under any name; it is recognised by its content. A mirror set in `HF_ENDPOINT` is used.
 
 While the true head is not there, the extension borrows a head of the same size from another text encoder file in your folders, if there is one. The Qwen-Image 2.1 encoder (Qwen3-VL 8B) has one, and Qwen3-VL 8B is built on Qwen3-8B, so it works, but clearly worse: about one text in ten does not come to an end, and thinking is not available. The panel names the file it borrows from. With no head at all your prompts are used as typed. An encoder file that contains its own `lm_head` (the full-precision 16 GB file does) is used directly, and nothing is downloaded.
+
+**P-Image-OSS and MiniMax-H3-Image: a stock encoder.** Pruna's text encoder is a Qwen3-VL 4B that was retrained for the image model, plus a small text connector that turns its hidden states into the conditioning. The retrained model writes poor text: invented words on signs, a tram with rubber tyres. The stock Qwen3-VL 4B behind the same connector writes well, and pictures made with it are good; its conditioning stays close to Pruna's (0.97 to 0.99 cosine per token, so results are not identical to Pruna's own encoder).
+
+The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Image checkpoint loaded, open **Advanced** and press **Build stock encoder for P-Image-OSS**. The first press says what it would do, the second does it:
+
+- The stock model is taken from a Qwen3-VL 4B file in your text encoder folders if there is one (the Krea 2 encoder is one); the result is then as small as that file, and nothing is downloaded. Otherwise the two files of [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) are downloaded (8.9 GB, Apache 2.0) and the result is a 9.1 GB bf16 file.
+- The connector is taken from Pruna's encoder file on disk, under either of its names (`p-image-oss_text_encoder_…` or the older `p-h3-image_text_encoder_…`). If there is none, only its 262 MB are downloaded from [PrunaAI/P-Image-OSS-Comfy](https://huggingface.co/PrunaAI/P-Image-OSS-Comfy).
+- Bytes are copied; no model is loaded and nothing is requantised. Downloads are checked against their SHA-256, resume after an interruption, and are deleted after the build.
+- The result, `p-image-oss_text_encoder_stock_qwen3vl_4b_<precision>.safetensors`, lands in your text encoder folder. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder.
+
+Without the web UI: `python -m lib_prompt_expansion.hybrid <text encoder folder>` in the extension's folder, with Forge's Python; `--plan` only says what would be done, `--download` takes Qwen's own files even when a stock file is on disk.
+
+Licences: the Qwen3-VL-4B parts are under the Apache License 2.0. The text connector is part of P-Image-OSS by Pruna AI, based on MiniMax-H3, and under the [MiniMax H3 Community License Agreement](https://huggingface.co/PrunaAI/P-Image-OSS/blob/main/LICENSE), like the image model itself. The built file is for your own use under those terms; it is not Apache-licensed as a whole.
 
 **MiniMax-H3-Image with its own 32B encoder** cannot be supported: that encoder is cut off after 50 of its 64 layers and has no output side at all.
 
@@ -183,7 +196,7 @@ Measured on an RTX 5090, encoder only, ten prompts in one pass, about 150 words 
 |---|---|---|---|
 | Qwen3-4B | bf16 | 6.5 s | about 2.5 GB |
 | Qwen3-VL 4B | scaled fp8 | 10 s | about 3 GB |
-| Qwen3-VL 4B (P-H3-Image) | int8 | 10 s | about 3 GB |
+| Qwen3-VL 4B (P-Image-OSS) | int8 | 10 s | about 3 GB |
 | Qwen3-VL 8B | int8 | 9 s | about 2.5 GB |
 | Qwen3-8B | fp8 mixed, with its own head | 12 s | about 3.6 GB |
 | Qwen3.5 9B | int8 | 20 s | about 3.8 GB |
@@ -201,7 +214,7 @@ With the shipped presets all six write plain, usable text. In the last calibrati
 - **Qwen3-VL 4B (Krea 2)** writes well and stays on the rules. It likes to continue your prompt as one long chain of clauses rather than in separate sentences.
 - **Qwen3-8B (FLUX.2 Klein 9B)**, with its own output head, is as dependable as Qwen3-VL 8B. Thinking works on it. Through a borrowed head (see above) about one text in ten does not come to an end by itself and is cut back to the length.
 - **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering and now stays plain, but it is the least obedient: with *Legible world* it writes only about a third of its lettering in capitals and adds text to scenes that have nothing to write on, and now and then it runs into a loop (the text before the loop is kept).
-- **The P-H3-Image encoder** is the weakest writer. It is a Qwen3-VL 4B whose layers differ from the stock model: in a few texts of a hundred it breaks off and starts talking to itself (the text is cut there, and when too little is left the prompt is used as typed). With *Legible world* its lettering is mostly invented words ("SARVAN", "BANJAL"), a route number is rare and a destination rarer. It also gets a fact wrong now and then: in the author's test two of ten trams were given rubber tyres by the text, and MiniMax-H3-Image drew them so. The image model itself draws every sign as written.
+- **Pruna's P-Image-OSS encoder** (formerly P-H3-Image) is the weakest writer. It is a Qwen3-VL 4B retrained for the image model: in a few texts of a hundred it breaks off and starts talking to itself (the text is cut there, and when too little is left the prompt is used as typed). With *Legible world* its lettering is mostly invented words ("SARVAN", "BANJAL"), a route number is rare and a destination rarer, and it gets a fact wrong now and then: in the author's test two of ten trams were given rubber tyres by the text, and MiniMax-H3-Image drew them so. The stock encoder built as described above writes like Krea 2's: real names in the language of the place, and every text usable.
 
 No refusals were seen with ordinary prompts. A stock model may still decline some; then the prompt is used as typed.
 

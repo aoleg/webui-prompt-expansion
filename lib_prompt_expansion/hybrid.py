@@ -6,11 +6,16 @@ tensors, 262 MB) that turns five of its hidden states into the conditioning. The
 (invented words, facts wrong). The stock model behind the same connector writes well, and the pictures made with it
 are good: its conditioning stays close to Pruna's (0.97 to 0.99 cosine per token).
 
-This module builds that file. It copies bytes: no model is loaded, nothing is requantised.
+This module builds that file. No model is loaded.
 
-- The language model and the vision tower come from a stock Qwen3-VL 4B file that is already on disk (the Krea 2
-  encoder is one), or are downloaded from Qwen's own repository (two files, 8.9 GB, Apache 2.0).
+- The language model and the vision tower come from Qwen's own repository (two files, 8.9 GB, Apache 2.0) or from a
+  stock Qwen3-VL 4B file that is already on disk (the Krea 2 encoder is one).
 - The connector comes from a Pruna encoder file on disk, or its 262 MB are downloaded from Pruna's repository.
+- The result is int8 with ConvRot, the format of Pruna's own int8 file (5.1 GB): the full-precision weights are
+  rotated and quantised row by row here, with the quantiser Forge itself decodes with (comfy-kitchen). That needs
+  the full-precision model, so Qwen's files unless a bf16 stock file is on disk. Without torch, or on request, the
+  tensors are copied as they are stored instead: bf16 from Qwen's files (9.1 GB), or whatever a stock file on disk
+  holds (fp8 from the Krea 2 encoder), with nothing to download.
 
 Licences: the Qwen3-VL-4B parts are under the Apache License 2.0. The text connector is part of P-Image-OSS by Pruna
 AI and under the MiniMax H3 Community License Agreement, like the image model itself. The file this builds is for
@@ -18,7 +23,8 @@ your own use under those terms; it is not something to pass on as Apache-license
 
 From a command line, without the web UI (run in the extension's folder, with Forge's Python):
 
-    python -m lib_prompt_expansion.hybrid <text encoder folder> [--stock FILE] [--connector FILE] [--download] [--plan]
+    python -m lib_prompt_expansion.hybrid <text encoder folder> [--precision int8_convrot|bf16|copy] [--stock FILE]
+                                          [--connector FILE] [--plan]
 """
 
 import hashlib
@@ -37,6 +43,14 @@ CONNECTOR_BYTES = 262_307_840
 CONNECTOR_SHA256 = "5b32c68d101f14062a9c84a041e2d3da150f6cf1c6656092a5fdddcd22ad97bb"
 LANGUAGE, VISUAL = "model.language_model.", "model.visual."
 HIDDEN, VOCAB, LAYERS = 2560, 151936, 36
+
+# int8 with ConvRot, as in Pruna's int8 file: the weights of these layers are rotated in groups of 256 inputs and
+# stored as int8 with one scale per row; everything else (norms, the vision tower, the connector) stays as it is
+INT8, BF16, COPY = "int8_convrot", "bf16", "copy"
+GROUP = 256
+QUANTISED = ("self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj")
+QUANT_NOTE = json.dumps({"format": "int8_tensorwise", "convrot": True, "convrot_groupsize": GROUP}).encode("utf-8")
+FULL = {"BF16": 2, "F16": 2, "F32": 4}  # full-precision storage that can be quantised, and its bytes per value
 
 # Qwen's own release of the model, pinned to one revision
 QWEN = tuple(
@@ -128,6 +142,7 @@ class Plan:
     precision: str
     target: str
     downloads: int = 0  # bytes still to download
+    quantise: bool = False  # the language model is quantised to int8 with ConvRot here
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -135,7 +150,7 @@ class Plan:
         return os.path.isfile(self.target)
 
     def key(self) -> str:
-        return "|".join((self.target, str(self.stock), str(self.connector)))
+        return "|".join((self.target, str(self.stock), str(self.connector), str(self.quantise)))
 
     def describe(self) -> str:
         if self.exists:
@@ -143,35 +158,58 @@ class Plan:
         stock = f"the stock Qwen3-VL 4B in {os.path.basename(self.stock)}" if self.stock else f"the stock Qwen3-VL 4B, downloaded from {QWEN[0].repo} ({sum(part.size for part in QWEN) / 1e9:.1f} GB, Apache 2.0)"
         connector = f"Pruna's text connector from {os.path.basename(self.connector)}" if self.connector else f"Pruna's text connector, downloaded from {PRUNA.repo} ({CONNECTOR_BYTES / 1e9:.2f} GB, {PRUNA.licence})"
         text = f"This builds {os.path.basename(self.target)} in {self.folder} from {stock} and {connector}."
+        if self.quantise:
+            text += " The language model is quantised to int8 with ConvRot, the format of Pruna's own int8 file."
         if self.downloads:
             text += f" To download: {self.downloads / 1e9:.1f} GB."
         return text
 
 
-def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = None, connector: Optional[str] = None, download_stock: bool = False) -> Plan:
+def can_quantise() -> bool:
+    try:
+        import torch  # noqa: F401
+    except Exception:  # noqa: BLE001 - a broken install counts as none
+        return False
+    return True
+
+
+def _stored(path: str) -> str:
+    tensors, _, _ = read_header(path)
+    return _precision(tensors, _language_prefix(tensors))
+
+
+def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = None, connector: Optional[str] = None, precision: Optional[str] = None) -> Plan:
     """What would be built in `folder`, and from what. files: the encoder files to look through for sources.
 
-    stock / connector: a file to use, whatever is found. download_stock: use Qwen's own files even when a stock file
-    is on disk (it gives a bf16 file, larger and exact).
+    precision: "int8_convrot" (quantised here from the full-precision model; the default where torch is at hand),
+    "bf16" (Qwen's weights as they are), or "copy" (whatever a stock file on disk holds, nothing downloaded if there
+    is one). stock / connector: a file to use, whatever is found.
     """
     files = [path for path in files if path]
+    precision = precision or (INT8 if can_quantise() else COPY)
+    if precision not in (INT8, BF16, COPY):
+        raise BuildError(f"{precision} is not a precision this can build")
+    if precision == INT8 and not can_quantise():
+        raise BuildError("int8 with ConvRot needs torch, which this Python does not have")
     if connector is None:
         connector = next((path for path in files if kind(path) == "connector"), None)
     elif kind(connector) != "connector":
         raise BuildError(f"{connector} has no text connector")
-    if stock is None and not download_stock:
-        found = [path for path in files if kind(path) == "stock"]
-        stock = min(found, key=os.path.getsize) if found else None  # the smallest: a quantised file loads lightest
-    elif stock is not None and kind(stock) != "stock":
+    if stock is not None and kind(stock) != "stock":
         raise BuildError(f"{stock} is not a stock Qwen3-VL 4B file")
-    if stock is not None:
-        tensors, _, _ = read_header(stock)
-        precision = _precision(tensors, _language_prefix(tensors))
-    else:
-        precision = "bf16"
-    target = os.path.join(folder, f"p-image-oss_text_encoder_stock_qwen3vl_4b_{precision}.safetensors")
+    if stock is None:
+        found = [path for path in files if kind(path) == "stock"]
+        if precision == INT8:
+            found = [path for path in found if _stored(path) in ("bf16", "fp16", "fp32")]  # only full precision can be quantised
+        elif precision == BF16:
+            found = [path for path in found if _stored(path) == "bf16"]
+        stock = min(found, key=os.path.getsize) if found else None  # the smallest: it loads lightest
+    elif precision == INT8 and _stored(stock) not in ("bf16", "fp16", "fp32"):
+        raise BuildError(f"{stock} is already quantised ({_stored(stock)}); int8 with ConvRot is made from the full-precision model")
+    label = INT8 if precision == INT8 else (_stored(stock) if stock is not None else "bf16")
+    target = os.path.join(folder, f"p-image-oss_text_encoder_stock_qwen3vl_4b_{label}.safetensors")
     downloads = (0 if stock else sum(part.size for part in QWEN)) + (0 if connector else CONNECTOR_BYTES)
-    return Plan(folder, stock, connector, precision, target, downloads)
+    return Plan(folder, stock, connector, label, target, downloads, quantise=precision == INT8)
 
 
 # --- building -------------------------------------------------------------------------------------------------
@@ -305,8 +343,81 @@ def _bar(total: int, initial: int, label: str):
         return None
 
 
+def is_quantised_here(name: str, entry: dict) -> bool:
+    """Is this one of the weights that an int8 ConvRot file stores as int8? (Pruna's file: the same ones.)"""
+    if not name.startswith(LANGUAGE) or entry["dtype"] not in FULL or len(entry["shape"]) != 2 or entry["shape"][1] % GROUP:
+        return False
+    rest = name[len(LANGUAGE) :]
+    return rest == "embed_tokens.weight" or (rest.startswith("layers.") and rest.endswith(".weight") and rest.split(".", 2)[2][: -len(".weight")] in QUANTISED)
+
+
+def _hadamard(torch, size: int, device):
+    """The normalised regular Hadamard matrix ConvRot uses (as comfy_kitchen.tensor.int8_utils builds it)."""
+    base = torch.tensor([[1, 1, 1, -1], [1, 1, -1, 1], [1, -1, 1, 1], [-1, 1, 1, 1]], dtype=torch.float32, device=device)
+    matrix = base
+    while matrix.shape[0] < size:
+        matrix = torch.kron(matrix, base)
+    return matrix / (size**0.5)
+
+
+def quantise_convrot(raw: bytes, dtype: str, shape: list) -> tuple[bytes, bytes]:
+    """(int8 codes, one float32 scale per row) of a full-precision weight: rotated in groups, then rounded row-wise.
+
+    The same arithmetic as comfy-kitchen's quantize_int8_convrot_weight, which is used when it is installed: rows of
+    the rotated weight are divided by their largest magnitude over 127 and rounded to the nearest integer.
+    """
+    import torch
+
+    kinds = {"BF16": torch.bfloat16, "F16": torch.float16, "F32": torch.float32}
+    rows, columns = shape
+
+    def run(device):
+        weight = torch.frombuffer(bytearray(raw), dtype=kinds[dtype]).reshape(rows, columns).to(device=device, dtype=torch.float32)
+        try:
+            from comfy_kitchen.backends.eager.quantization import quantize_int8_convrot_weight
+
+            codes, scale = quantize_int8_convrot_weight(weight, GROUP)
+        except ImportError:
+            rotated = torch.matmul(weight.reshape(rows, columns // GROUP, GROUP), _hadamard(torch, GROUP, device).T).reshape(rows, columns)
+            scale = (rotated.abs().amax(dim=-1, keepdim=True) / 127.0).clamp(min=1e-30)
+            codes = torch.round(rotated / scale).clamp(-127, 127)
+        return codes.to(torch.int8).cpu().numpy().tobytes(), scale.reshape(rows, 1).to(torch.float32).cpu().numpy().tobytes()
+
+    with torch.inference_mode():
+        if torch.cuda.is_available():
+            try:
+                return run(torch.device("cuda"))
+            except RuntimeError:  # most likely no memory left beside the loaded models
+                torch.cuda.empty_cache()
+        return run(torch.device("cpu"))
+
+
+def _with_quantising(parts: list[tuple]) -> list[tuple]:
+    """The same tensors, with every weight that is to be quantised replaced by its three stored tensors."""
+    out = []
+    stems = {name[: -len("weight")] for name, entry, _, _ in parts if is_quantised_here(name, entry)}
+    for name, entry, source, start in parts:
+        if not is_quantised_here(name, entry):
+            if name.rsplit(".", 1)[0] + "." in stems:
+                continue  # storage data of that weight's old form: it gets its own below
+            out.append((name, entry, source, start))
+            continue
+        rows, columns = entry["shape"]
+        stem = name[: -len("weight")]
+        origin = (entry, source, start)
+        out.append((name, {"dtype": "I8", "shape": [rows, columns], "data_offsets": [0, rows * columns]}, origin, "codes"))
+        out.append((stem + "weight_scale", {"dtype": "F32", "shape": [rows, 1], "data_offsets": [0, rows * 4]}, origin, "scale"))
+        out.append((stem + "comfy_quant", {"dtype": "U8", "shape": [len(QUANT_NOTE)], "data_offsets": [0, len(QUANT_NOTE)]}, origin, "note"))
+    return out
+
+
 def assemble(parts: list[tuple], target: str, metadata: dict, should_stop: Optional[Callable[[], bool]] = None, progress: bool = True) -> int:
-    """Write the tensors (name, entry, file, start in that file) into one safetensors file, byte for byte."""
+    """Write the tensors into one safetensors file.
+
+    A part is (name, entry, file, start in that file): its bytes are copied. Or, from _with_quantising,
+    (name, entry of what is written, (source entry, file, start), "codes" | "scale" | "note"): the source weight is
+    quantised when its codes are written, and its scales and its format note follow.
+    """
     names = [name for name, *_ in parts]
     if len(set(names)) != len(names):
         raise BuildError("a tensor would be written twice")
@@ -322,10 +433,32 @@ def assemble(parts: list[tuple], target: str, metadata: dict, should_stop: Optio
     part = target + ".part"
     bar = _bar(offset, 0, os.path.basename(target)) if progress else None
     handles: dict[str, object] = {}
+    scales = b""
     try:
         with open(part, "wb") as out:
             out.write(head)
             for _, entry, source, start in parts:
+                if isinstance(source, tuple):  # a weight that is quantised here
+                    if should_stop is not None and should_stop():
+                        raise Stopped("interrupted")
+                    if start == "codes":
+                        origin, path, begin = source
+                        handle = handles.get(path)
+                        if handle is None:
+                            handle = handles[path] = open(path, "rb")
+                        handle.seek(begin)
+                        raw = handle.read(origin["data_offsets"][1] - origin["data_offsets"][0])
+                        if len(raw) != origin["shape"][0] * origin["shape"][1] * FULL[origin["dtype"]]:
+                            raise BuildError(f"{os.path.basename(path)} ends before its last tensor")
+                        block, scales = quantise_convrot(raw, origin["dtype"], origin["shape"])
+                    else:
+                        block = scales if start == "scale" else QUANT_NOTE
+                    if len(block) != entry["data_offsets"][1] - entry["data_offsets"][0]:
+                        raise BuildError("a quantised tensor has an unexpected size")
+                    out.write(block)
+                    if bar is not None:
+                        bar.update(len(block))
+                    continue
                 handle = handles.get(source)
                 if handle is None:
                     handle = handles[source] = open(source, "rb")
@@ -405,8 +538,16 @@ def build(
                 stock_parts += _stock_tensors(path)
             stock_name = f"{QWEN[0].repo}@{QWEN[0].revision[:12]}"
 
-        log(f"{TAG} Building {os.path.basename(plan.target)}: {len(stock_parts)} tensors of the stock model, {len(connector_parts)} of the connector")
         metadata = {"format": "pt", "built_by": "webui-prompt-expansion", "language_model": stock_name, "text_connector": os.path.basename(connector) if plan.connector else f"{PRUNA.repo}@{PRUNA.revision[:12]}", "license": LICENCE_NOTE}
+        if plan.quantise:
+            count = sum(is_quantised_here(name, entry) for name, entry, _, _ in stock_parts)
+            if count != 7 * LAYERS + 1:
+                raise BuildError(f"{stock_name} is not stored in full precision, so it cannot be quantised here")
+            stock_parts = _with_quantising(stock_parts)
+            metadata["quantization"] = f"int8 with ConvRot (group {GROUP}), quantised by webui-prompt-expansion from {stock_name}"
+            log(f"{TAG} Quantising {count} weights to int8 with ConvRot and building {os.path.basename(plan.target)}")
+        else:
+            log(f"{TAG} Building {os.path.basename(plan.target)}: {len(stock_parts)} tensors of the stock model, {len(connector_parts)} of the connector")
         size = assemble(stock_parts + connector_parts, plan.target, metadata, should_stop, progress)
         check(plan.target)
         log(f"{TAG} Built {plan.target} ({size / 1e9:.2f} GB). Select it under VAE / Text Encoder in place of Pruna's encoder.")
@@ -433,7 +574,7 @@ def press(armed: str, folder: Optional[str], files: Iterable[str], **options) ->
     try:
         if not folder:
             return "", "Forge's text encoder folder is not known."
-        plan = make_plan(folder, files)
+        plan = make_plan(folder, files, precision=options.pop("precision", None))
         if plan.exists:
             return "", plan.describe()
         if armed != plan.key():
@@ -453,14 +594,14 @@ def main(arguments: Optional[list[str]] = None) -> int:
     parser.add_argument("folder", help="the text encoder folder: sources are looked for here, the file is built here")
     parser.add_argument("--stock", help="a stock Qwen3-VL 4B file to use")
     parser.add_argument("--connector", help="a Pruna encoder file to take the connector from")
-    parser.add_argument("--download", action="store_true", help="download Qwen's own files even when a stock file is on disk (gives a bf16 file)")
+    parser.add_argument("--precision", choices=(INT8, BF16, COPY), help="int8_convrot: quantised here from the full-precision model (the default); bf16: Qwen's weights as they are; copy: a stock file from disk as it is stored")
     parser.add_argument("--keep-downloads", action="store_true", help="keep the downloaded source files")
     parser.add_argument("--plan", action="store_true", help="only say what would be done")
     options = parser.parse_args(arguments)
     folder = os.path.abspath(options.folder)
     files = sorted(os.path.join(folder, name) for name in os.listdir(folder)) if os.path.isdir(folder) else []
     try:
-        plan = make_plan(folder, files, stock=options.stock, connector=options.connector, download_stock=options.download)
+        plan = make_plan(folder, files, stock=options.stock, connector=options.connector, precision=options.precision)
         print(plan.describe())
         if options.plan or plan.exists:
             return 0

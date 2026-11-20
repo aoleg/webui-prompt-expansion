@@ -95,14 +95,22 @@ While the true head is not there, the extension borrows a head of the same size 
 
 **P-Image-OSS and MiniMax-H3-Image: a stock encoder.** Pruna's text encoder is a Qwen3-VL 4B that was retrained for the image model, plus a small text connector that turns its hidden states into the conditioning. The retrained model writes poor text: invented words on signs, a tram with rubber tyres. The stock Qwen3-VL 4B behind the same connector writes well, and pictures made with it are good; its conditioning stays close to Pruna's (0.97 to 0.99 cosine per token, so results are not identical to Pruna's own encoder).
 
-The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Image checkpoint loaded, open **Advanced** and press **Build stock encoder for P-Image-OSS**. The first press says what it would do, the second does it:
+The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Image checkpoint loaded, open **Advanced**, choose under **Build as**, and press **Build stock encoder for P-Image-OSS**. The first press says what it would do, the second does it.
 
-- The stock model is taken from a Qwen3-VL 4B file in your text encoder folders if there is one (the Krea 2 encoder is one); the result is then as small as that file, and nothing is downloaded. Otherwise the two files of [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) are downloaded (8.9 GB, Apache 2.0) and the result is a 9.1 GB bf16 file.
+| Build as | Made from | Download | Result |
+|---|---|---|---|
+| int8 with ConvRot (the default) | Qwen's full-precision model, rotated and quantised row by row | 8.9 GB, unless a bf16 stock file is on disk | 5.1 GB, the format of Pruna's own int8 file |
+| bf16 | Qwen's model as it is | 8.9 GB, unless a bf16 stock file is on disk | 9.1 GB |
+| A copy of a stock file on disk | A Qwen3-VL 4B file in your text encoder folders, as it is stored (the Krea 2 encoder is fp8) | none, if you have such a file | as large as that file |
+
+int8 with ConvRot is the best of the three to run: measured against the bf16 build, its conditioning is 1.0 % off (cosine 0.99995), where the fp8 copy is 4.0 % off (0.9992). It is quantised with the same arithmetic Forge decodes it with (comfy-kitchen's), and its tensors have the names, types and shapes of Pruna's int8 file one for one.
+
+- The stock model comes from [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) (two files, Apache 2.0), or from a stock file in your text encoder folders where one fits the choice.
 - The connector is taken from Pruna's encoder file on disk, under either of its names (`p-image-oss_text_encoder_…` or the older `p-h3-image_text_encoder_…`). If there is none, only its 262 MB are downloaded from [PrunaAI/P-Image-OSS-Comfy](https://huggingface.co/PrunaAI/P-Image-OSS-Comfy).
-- Bytes are copied; no model is loaded and nothing is requantised. Downloads are checked against their SHA-256, resume after an interruption, and are deleted after the build.
+- No model is loaded. Quantising takes well under a minute. Downloads are checked against their SHA-256, resume after an interruption, and are deleted after the build.
 - The result, `p-image-oss_text_encoder_stock_qwen3vl_4b_<precision>.safetensors`, lands in your text encoder folder. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder.
 
-Without the web UI: `python -m lib_prompt_expansion.hybrid <text encoder folder>` in the extension's folder, with Forge's Python; `--plan` only says what would be done, `--download` takes Qwen's own files even when a stock file is on disk.
+Without the web UI: `python -m lib_prompt_expansion.hybrid <text encoder folder>` in the extension's folder, with Forge's Python; `--plan` only says what would be done, `--precision int8_convrot`, `bf16` or `copy` chooses the kind.
 
 Licences: the Qwen3-VL-4B parts are under the Apache License 2.0. The text connector is part of P-Image-OSS by Pruna AI, based on MiniMax-H3, and under the [MiniMax H3 Community License Agreement](https://huggingface.co/PrunaAI/P-Image-OSS/blob/main/LICENSE), like the image model itself. The built file is for your own use under those terms; it is not Apache-licensed as a whole.
 

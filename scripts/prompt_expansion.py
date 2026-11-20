@@ -33,6 +33,9 @@ STOCK_ENCODER_INFO = (
 )
 
 
+STOCK_ENCODER_PRECISIONS = {"int8 with ConvRot (best)": "int8_convrot", "bf16": "bf16", "a copy of a stock file on disk": "copy"}
+
+
 def pruna_hint() -> str:
     """A word in the status line when the loaded text encoder is Pruna's retrained one. Reads file headers only."""
     try:
@@ -104,18 +107,26 @@ class PromptExpansionScript(scripts.Script):
                 # P-Image-OSS and MiniMax-H3-Image: Pruna's encoder writes poorly, the stock model behind its connector well
                 with gr.Row():
                     build_stock = gr.Button(value="Build stock encoder for P-Image-OSS", elem_id=self.elem_id("build_stock"), scale=1)
+                    build_as = gr.Dropdown(
+                        label="Build as",
+                        info="int8 with ConvRot is made from Qwen's full-precision files (8.9 GB to download unless on disk); a copy takes a stock file from your folders as it is",
+                        choices=list(STOCK_ENCODER_PRECISIONS),
+                        value=next(iter(STOCK_ENCODER_PRECISIONS)),
+                        elem_id=self.elem_id("build_stock_as"),
+                        scale=1,
+                    )
                     build_text = gr.Markdown(STOCK_ENCODER_INFO, elem_id=self.elem_id("build_stock_text"))
                 build_armed = gr.State("")
 
-        def build_stock_encoder(armed):
+        def build_stock_encoder(armed, chosen):
             """First click: say what would be done. Second click on the same plan: do it."""
             from lib_prompt_expansion import hybrid
             from lib_prompt_expansion.headfile import library_files, loaded_files
 
             loaded = loaded_files()
-            return hybrid.press(armed, head_fetch.target_folder(loaded), loaded + library_files())
+            return hybrid.press(armed, head_fetch.target_folder(loaded), loaded + library_files(), precision=STOCK_ENCODER_PRECISIONS.get(chosen))
 
-        build_stock.click(fn=build_stock_encoder, inputs=[build_armed], outputs=[build_armed, build_text])
+        build_stock.click(fn=build_stock_encoder, inputs=[build_armed, build_as], outputs=[build_armed, build_text])
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)

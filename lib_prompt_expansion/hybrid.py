@@ -126,9 +126,26 @@ def _language_prefix(tensors: dict) -> Optional[str]:
     return None
 
 
-def _precision(tensors: dict, prefix: str) -> str:
-    dtype = tensors.get(prefix + "layers.0.self_attn.q_proj.weight", {}).get("dtype", "")
-    return {"BF16": "bf16", "F16": "fp16", "F32": "fp32", "F8_E4M3": "fp8", "F8_E5M2": "fp8", "I8": "int8", "U8": "w4"}.get(dtype, dtype.lower() or "unknown")
+def _stored(path: str) -> str:
+    """How a stock file stores its language model: "bf16", "fp16", "fp32", "fp8", "int8", "4bit", or "mixed".
+
+    Every linear layer of every block is looked at. A file that keeps a few layers whole and the rest in 4 bits (an
+    nvfp4 "full" file does) is "mixed", not full precision.
+    """
+    tensors, _, _ = read_header(path)
+    prefix = _language_prefix(tensors)
+    kinds = {tensors.get(f"{prefix}layers.{layer}.{part}.weight", {}).get("dtype", "") for layer in range(LAYERS) for part in QUANTISED}
+    if len(kinds) != 1:
+        return "mixed"
+    dtype = kinds.pop()
+    return {"BF16": "bf16", "F16": "fp16", "F32": "fp32", "F8_E4M3": "fp8", "F8_E5M2": "fp8", "I8": "int8", "U8": "4bit"}.get(dtype, dtype.lower() or "unknown")
+
+
+def is_full_precision(path: str) -> bool:
+    """Can int8 with ConvRot be made from this stock file? Only if every weight to be quantised is stored whole."""
+    tensors, _, _ = read_header(path)
+    prefix = _language_prefix(tensors)
+    return _stored(path) in ("bf16", "fp16", "fp32") and tensors.get(prefix + "embed_tokens.weight", {}).get("dtype") in FULL
 
 
 # --- the plan -------------------------------------------------------------------------------------------------
@@ -143,6 +160,7 @@ class Plan:
     target: str
     downloads: int = 0  # bytes still to download
     quantise: bool = False  # the language model is quantised to int8 with ConvRot here
+    stored: str = "bf16"  # how the stock source stores the model
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -153,16 +171,20 @@ class Plan:
         return "|".join((self.target, str(self.stock), str(self.connector), str(self.quantise)))
 
     def describe(self) -> str:
+        """What will be done, as a few short lines of Markdown."""
+        name = os.path.basename(self.target)
         if self.exists:
-            return f"Already built: {os.path.basename(self.target)} in {self.folder}. Select it under VAE / Text Encoder in place of Pruna's encoder."
-        stock = f"the stock Qwen3-VL 4B in {os.path.basename(self.stock)}" if self.stock else f"the stock Qwen3-VL 4B, downloaded from {QWEN[0].repo} ({sum(part.size for part in QWEN) / 1e9:.1f} GB, Apache 2.0)"
-        connector = f"Pruna's text connector from {os.path.basename(self.connector)}" if self.connector else f"Pruna's text connector, downloaded from {PRUNA.repo} ({CONNECTOR_BYTES / 1e9:.2f} GB, {PRUNA.licence})"
-        text = f"This builds {os.path.basename(self.target)} in {self.folder} from {stock} and {connector}."
-        if self.quantise:
-            text += " The language model is quantised to int8 with ConvRot, the format of Pruna's own int8 file."
-        if self.downloads:
-            text += f" To download: {self.downloads / 1e9:.1f} GB."
-        return text
+            return f"**Already built:** `{name}` in `{self.folder}`. Select it under VAE / Text Encoder in place of Pruna's encoder."
+        if self.stock:
+            stock = f"`{os.path.basename(self.stock)}` ({self.stored})"
+        else:
+            stock = f"download from {QWEN[0].repo} ({sum(part.size for part in QWEN) / 1e9:.1f} GB, Apache 2.0)"
+        stock += ", then quantise to int8 with ConvRot" if self.quantise else ", copied as it is"
+        if self.connector:
+            connector = f"from `{os.path.basename(self.connector)}`"
+        else:
+            connector = f"download from {PRUNA.repo} ({CONNECTOR_BYTES / 1e9:.2f} GB, {PRUNA.licence})"
+        return f"**Will build** `{name}`\n\n- Stock Qwen3-VL 4B: {stock}\n- Pruna's connector: {connector}\n- Into: `{self.folder}`"
 
 
 def can_quantise() -> bool:
@@ -171,11 +193,6 @@ def can_quantise() -> bool:
     except Exception:  # noqa: BLE001 - a broken install counts as none
         return False
     return True
-
-
-def _stored(path: str) -> str:
-    tensors, _, _ = read_header(path)
-    return _precision(tensors, _language_prefix(tensors))
 
 
 def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = None, connector: Optional[str] = None, precision: Optional[str] = None) -> Plan:
@@ -192,7 +209,9 @@ def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = Non
     if precision == INT8 and not can_quantise():
         raise BuildError("int8 with ConvRot needs torch, which this Python does not have")
     if connector is None:
-        connector = next((path for path in files if kind(path) == "connector"), None)
+        # Pruna's own file before a file built here (their connectors are the same bytes; the name reads better)
+        candidates = sorted((path for path in files if kind(path) == "connector"), key=lambda path: bool(read_header(path)[1].get("built_by")))
+        connector = candidates[0] if candidates else None
     elif kind(connector) != "connector":
         raise BuildError(f"{connector} has no text connector")
     if stock is not None and kind(stock) != "stock":
@@ -200,16 +219,20 @@ def make_plan(folder: str, files: Iterable[str] = (), stock: Optional[str] = Non
     if stock is None:
         found = [path for path in files if kind(path) == "stock"]
         if precision == INT8:
-            found = [path for path in found if _stored(path) in ("bf16", "fp16", "fp32")]  # only full precision can be quantised
+            # only the full-precision model can be quantised; a quantised or mixed file on disk is passed over
+            # and Qwen's own files are downloaded instead
+            found = [path for path in found if is_full_precision(path)]
         elif precision == BF16:
-            found = [path for path in found if _stored(path) == "bf16"]
-        stock = min(found, key=os.path.getsize) if found else None  # the smallest: it loads lightest
-    elif precision == INT8 and _stored(stock) not in ("bf16", "fp16", "fp32"):
-        raise BuildError(f"{stock} is already quantised ({_stored(stock)}); int8 with ConvRot is made from the full-precision model")
+            found = [path for path in found if is_full_precision(path) and _stored(path) == "bf16"]
+        # the best stored form first, then the smallest file
+        rank = {"bf16": 0, "fp16": 0, "fp32": 0, "fp8": 1, "int8": 1}
+        stock = min(found, key=lambda path: (rank.get(_stored(path), 2), os.path.getsize(path))) if found else None
+    elif precision == INT8 and not is_full_precision(stock):
+        raise BuildError(f"{os.path.basename(stock)} is not a full-precision file (it is {_stored(stock)}); int8 with ConvRot is made from the full-precision model. Leave the file out and Qwen's own files are downloaded")
     label = INT8 if precision == INT8 else (_stored(stock) if stock is not None else "bf16")
     target = os.path.join(folder, f"p-image-oss_text_encoder_stock_qwen3vl_4b_{label}.safetensors")
     downloads = (0 if stock else sum(part.size for part in QWEN)) + (0 if connector else CONNECTOR_BYTES)
-    return Plan(folder, stock, connector, label, target, downloads, quantise=precision == INT8)
+    return Plan(folder, stock, connector, label, target, downloads, quantise=precision == INT8, stored=_stored(stock) if stock is not None else "bf16")
 
 
 # --- building -------------------------------------------------------------------------------------------------
@@ -569,7 +592,8 @@ def build(
 def press(armed: str, folder: Optional[str], files: Iterable[str], **options) -> tuple[str, str]:
     """The panel's button. The first press says what would be done and arms it; a second press on the same plan does it.
 
-    Returns (what is armed now, the text to show). Never raises.
+    Returns (what is armed now, the text to show). While something is armed the button reads "Click again to build".
+    Never raises.
     """
     try:
         if not folder:
@@ -578,13 +602,13 @@ def press(armed: str, folder: Optional[str], files: Iterable[str], **options) ->
         if plan.exists:
             return "", plan.describe()
         if armed != plan.key():
-            return plan.key(), plan.describe() + " **Click again to start.** Progress is shown in the console."
+            return plan.key(), plan.describe() + "\n\nProgress is shown in the console."
         target = build(plan, **options)
-        return "", f"Built {os.path.basename(target)} in {folder}. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder."
+        return "", f"**Built** `{os.path.basename(target)}` in `{folder}`. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder."
     except BuildError as problem:
-        return "", f"Not built: {problem}."
+        return "", f"**Not built.** {str(problem)[:1].upper()}{str(problem)[1:]}."
     except Exception as problem:  # noqa: BLE001 - a button must answer, whatever happened
-        return "", f"Not built: {type(problem).__name__}: {problem}"
+        return "", f"**Not built.** {type(problem).__name__}: {problem}"
 
 
 def main(arguments: Optional[list[str]] = None) -> int:

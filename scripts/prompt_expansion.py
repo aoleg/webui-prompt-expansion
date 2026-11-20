@@ -33,6 +33,7 @@ STOCK_ENCODER_INFO = (
 )
 
 
+STOCK_ENCODER_BUTTON, STOCK_ENCODER_AGAIN = "Build stock encoder for P-Image-OSS", "Click again to build"
 STOCK_ENCODER_PRECISIONS = {"int8 with ConvRot (best)": "int8_convrot", "bf16": "bf16", "a copy of a stock file on disk": "copy"}
 
 
@@ -106,7 +107,7 @@ class PromptExpansionScript(scripts.Script):
                 )
                 # P-Image-OSS and MiniMax-H3-Image: Pruna's encoder writes poorly, the stock model behind its connector well
                 with gr.Row():
-                    build_stock = gr.Button(value="Build stock encoder for P-Image-OSS", elem_id=self.elem_id("build_stock"), scale=1)
+                    build_stock = gr.Button(value=STOCK_ENCODER_BUTTON, elem_id=self.elem_id("build_stock"), scale=1)
                     build_as = gr.Dropdown(
                         label="Build as",
                         info="int8 with ConvRot is made from Qwen's full-precision files (8.9 GB to download unless on disk); a copy takes a stock file from your folders as it is",
@@ -124,9 +125,12 @@ class PromptExpansionScript(scripts.Script):
             from lib_prompt_expansion.headfile import library_files, loaded_files
 
             loaded = loaded_files()
-            return hybrid.press(armed, head_fetch.target_folder(loaded), loaded + library_files(), precision=STOCK_ENCODER_PRECISIONS.get(chosen))
+            armed, text = hybrid.press(armed, head_fetch.target_folder(loaded), loaded + library_files(), precision=STOCK_ENCODER_PRECISIONS.get(chosen))
+            return armed, text, gr.update(value=STOCK_ENCODER_AGAIN if armed else STOCK_ENCODER_BUTTON)
 
-        build_stock.click(fn=build_stock_encoder, inputs=[build_armed, build_as], outputs=[build_armed, build_text])
+        build_stock.click(fn=build_stock_encoder, inputs=[build_armed, build_as], outputs=[build_armed, build_text, build_stock])
+        # another choice is another plan: the button asks anew
+        build_as.change(fn=lambda: ("", STOCK_ENCODER_INFO, gr.update(value=STOCK_ENCODER_BUTTON)), inputs=[], outputs=[build_armed, build_text, build_stock], show_progress=False)
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)

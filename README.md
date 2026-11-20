@@ -95,7 +95,7 @@ While the true head is not there, the extension borrows a head of the same size 
 
 **P-Image-OSS and MiniMax-H3-Image: a stock encoder.** Pruna's text encoder is a Qwen3-VL 4B that was retrained for the image model, plus a small text connector that turns its hidden states into the conditioning. The retrained model writes poor text: invented words on signs, a tram with rubber tyres. The stock Qwen3-VL 4B behind the same connector writes well, and pictures made with it are good; its conditioning stays close to Pruna's (0.97 to 0.99 cosine per token, so results are not identical to Pruna's own encoder).
 
-The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Image checkpoint loaded, open **Advanced**, choose under **Build as**, and press **Build stock encoder for P-Image-OSS**. The first press says what it would do, the second does it.
+The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Image checkpoint loaded, open **Advanced**, choose under **Build as**, and press **Build stock encoder for P-Image-OSS**. The first press shows what will be built and from what, and the button then reads **Click again to build**; the second press does it.
 
 | Build as | Made from | Download | Result |
 |---|---|---|---|
@@ -105,7 +105,7 @@ The extension builds that encoder for you. With a P-Image-OSS or MiniMax-H3-Imag
 
 int8 with ConvRot is the best of the three to run: measured against the bf16 build, its conditioning is 1.0 % off (cosine 0.99995), where the fp8 copy is 4.0 % off (0.9992). It is quantised with the same arithmetic Forge decodes it with (comfy-kitchen's), and its tensors have the names, types and shapes of Pruna's int8 file one for one.
 
-- The stock model comes from [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) (two files, Apache 2.0), or from a stock file in your text encoder folders where one fits the choice.
+- The stock model comes from [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) (two files, Apache 2.0), or from a stock file in your text encoder folders where one fits the choice. For int8 with ConvRot and for bf16 only a file that is stored whole in full precision fits: an fp8 file, or an nvfp4 file with some layers kept whole, is passed over and Qwen's files are downloaded.
 - The connector is taken from Pruna's encoder file on disk, under either of its names (`p-image-oss_text_encoder_…` or the older `p-h3-image_text_encoder_…`). If there is none, only its 262 MB are downloaded from [PrunaAI/P-Image-OSS-Comfy](https://huggingface.co/PrunaAI/P-Image-OSS-Comfy).
 - No model is loaded. Quantising takes well under a minute. Downloads are checked against their SHA-256, resume after an interruption, and are deleted after the build.
 - The result, `p-image-oss_text_encoder_stock_qwen3vl_4b_<precision>.safetensors`, lands in your text encoder folder. Refresh the VAE / Text Encoder list and select it in place of Pruna's encoder.

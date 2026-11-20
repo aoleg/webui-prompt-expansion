@@ -120,6 +120,7 @@ class BatchSampler:
         options = self.options
         logits = torch.nan_to_num(logits.detach().float(), nan=-torch.inf, posinf=torch.inf, neginf=-torch.inf)
         if self.used is not None:
+            logits = logits.to(self.used.device)
             penalised = logits
             if options.repetition_penalty != 1.0:
                 penalised = torch.where(logits < 0, logits * options.repetition_penalty, logits / options.repetition_penalty)

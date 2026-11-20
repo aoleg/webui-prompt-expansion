@@ -45,7 +45,7 @@ class Writer:
     def __enter__(self):
         if self.adapter.patcher is not None:
             memory_management.load_model_gpu(self.adapter.patcher)
-        self.head = Head(self.adapter.transformer, self.adapter.tied)
+        self.head = Head(self.adapter.transformer, self.adapter.tied, head_file=self.adapter.head_file)
         return self
 
     def __exit__(self, *_):

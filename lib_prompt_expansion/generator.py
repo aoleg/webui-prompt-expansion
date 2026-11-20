@@ -146,10 +146,23 @@ class Decoder:
         return self.feed_rows([list(ids)])[0]
 
 
-class Head:
-    """Hidden state to vocabulary logits. Holds device memory: call release() when the batch is done."""
+def open_decoder(transformer, capacity: int, dtype: Optional[torch.dtype] = None, rows: int = 1, pads: Optional[list[int]] = None):
+    """The decoder that fits the encoder's layer stack."""
+    if isinstance(getattr(transformer, "model", None), forge_llama.Qwen35Transformer):
+        from .qwen35 import Qwen35Decoder
 
-    def __init__(self, transformer, tied: bool, dtype: Optional[torch.dtype] = None):
+        return Qwen35Decoder(transformer, capacity, dtype=dtype, rows=rows, pads=pads)
+    return Decoder(transformer, capacity, dtype=dtype, rows=rows, pads=pads)
+
+
+class Head:
+    """Hidden state to vocabulary logits. Holds device memory: call release() when the batch is done.
+
+    Three sources, in this order: an lm_head that Forge loaded with the encoder; the input embedding table when
+    the encoder ties the two; `head_file`, an encoder file that still contains the head Forge dropped.
+    """
+
+    def __init__(self, transformer, tied: bool, dtype: Optional[torch.dtype] = None, head_file: Optional[str] = None):
         stack = transformer.model
         self.vocab_size = stack.config.vocab_size
         self.module = getattr(stack, "lm_head", None)
@@ -158,7 +171,13 @@ class Head:
         if self.module is not None:
             return
         if not tied:
-            raise UnsupportedEncoder(f"{type(transformer).__name__} needs an output head that Forge does not load")
+            if not head_file:
+                raise UnsupportedEncoder(f"{type(transformer).__name__} needs its output head, and no loaded text encoder file contains one")
+            from .headfile import load_head
+
+            device = encoder_device(transformer)
+            self.weight = load_head(head_file, device, dtype or execution_dtype(device))
+            return
         # Tied embeddings: the output matrix is the input embedding table. Asking the embedding layer for every
         # row goes through Forge's own casting, so quantised, GGUF and offloaded tables resolve the usual way.
         embed = transformer.get_input_embeddings()
@@ -219,7 +238,7 @@ def generate_batch(
 
     width = max(len(prompt) for prompt in prompts)
     pads = [width - len(prompt) for prompt in prompts]
-    decoder = Decoder(transformer, capacity=width + max_new_tokens, dtype=dtype, rows=rows, pads=pads)
+    decoder = open_decoder(transformer, capacity=width + max_new_tokens, dtype=dtype, rows=rows, pads=pads)
     sampler = BatchSampler(sampling, seeds, getattr(head, "vocab_size", None) or decoder.config.vocab_size, decoder.device)
     stops = set(stop_ids)
     active = [True] * rows

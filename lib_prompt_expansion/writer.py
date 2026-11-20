@@ -7,7 +7,7 @@ from typing import Callable, Optional
 import torch
 from backend import memory_management
 
-from .adapters import Adapter
+from .adapters import Adapter, plain
 from .generator import Head, generate_batch
 from .sampling import SamplingOptions
 
@@ -26,6 +26,9 @@ class Written:
     finish: str  # stop | length | interrupted | loop
     tokens: int
     seconds: float  # of the pass this text was written in
+
+
+BEGUN_MINIMUM = 12  # an answer that was begun with the request must add at least this many tokens
 
 
 def split_reasoning(raw: str, thinking: bool) -> str:
@@ -82,8 +85,13 @@ class Writer:
         rows_per_pass: int = 10,
         should_stop: Optional[Callable[[], bool]] = None,
         on_progress: Optional[Callable[[int, int, int], None]] = None,
+        starts: Optional[list[str]] = None,
     ) -> list[Written]:
         """One answer per request, in passes of at most `rows_per_pass` requests. Request i is sampled with seeds[i].
+
+        starts: for each request, the first words of its answer. They are put where the encoder's answer begins, so
+        that it continues them (word for word, with nothing to obey or to forget); the returned text includes them.
+        Not used while the encoder reasons first: its answer then begins with the reasoning.
 
         on_progress(pass number, passes, tokens written in this pass) is called after every token step.
         After an interrupt the requests of later passes come back empty with finish "interrupted".
@@ -102,7 +110,8 @@ class Writer:
                 stopped = True
                 written += [Written("", "", "interrupted", 0, 0.0) for _ in rows]
                 continue
-            prompts = [adapter.encode(adapter.prompt(system, users[row], thinking)) for row in rows]
+            begun = ["" if thinking or starts is None else plain(starts[row]) for row in rows]
+            prompts = [adapter.encode(adapter.prompt(system, users[row], thinking) + start) for row, start in zip(rows, begun)]
             started = time.perf_counter()
             results = generate_batch(
                 adapter.transformer,
@@ -115,10 +124,11 @@ class Writer:
                 sampling=options.sampling,
                 should_stop=should_stop,
                 on_token=(lambda count, number=number: on_progress(number, len(passes), count)) if on_progress is not None else None,
+                min_new_tokens=BEGUN_MINIMUM if any(begun) else 0,
             )
             seconds = time.perf_counter() - started
-            for result in results:
-                raw = adapter.decode(result.tokens)
+            for result, start in zip(results, begun):
+                raw = start + adapter.decode(result.tokens)
                 written.append(Written(split_reasoning(raw, thinking), raw, result.finish, len(result.tokens), seconds))
             stopped = any(result.finish == "interrupted" for result in results)
         return written

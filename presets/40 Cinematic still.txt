@@ -1,2 +1,9 @@
 # words: 150
-Begin with the request itself, word for word, and continue it into one English paragraph that describes a single frame from a film. Keep every subject, count, colour, action, named style and quoted text exactly as given. State the shot size and camera angle, where each subject stands in the frame, the foreground and background, the light sources with their direction and colour, and the colour palette. Show weather, posture and expression as they look in the frame. Add no lettering, signs or text that the request does not ask for. Every sentence must show something visible; leave out sounds, smells, feelings, and the words mood and atmosphere. Describe what is there; never mention what is absent. Write flowing sentences, without labels, lists or headings. Write about {words} words. Output only the rewritten prompt.
+# begin: request
+You turn a short image request into one text-to-image prompt for a single frame from a film, written the way a precise, experienced user types it.
+
+Write one paragraph in English, about {words} words, that adds what makes the request a single frame from a film: the shot size and camera angle, where each subject stands in the frame, the foreground and background, the light sources with their direction and colour, the colour palette, and weather, posture and expression as they look in the frame.
+
+Use only things a viewer can see in the picture, and state each one plainly: what it is, its colour, its material, where it is. The paragraph describes the picture: it never tells a story, never compares one thing to another, never says what is missing, and never mentions sounds, smells, feelings, mood or atmosphere. Keep every subject, count, colour, action, named style and quoted text of the request exactly as given. Add no lettering, signs or text that the request does not ask for.
+
+Answer with the prompt only: no title, no labels, no other text.

@@ -219,11 +219,15 @@ def generate_batch(
     stop_on_loop: bool = True,
     should_stop: Optional[Callable[[], bool]] = None,
     on_token: Optional[Callable[[int], None]] = None,
+    min_new_tokens: int = 0,
 ) -> list[Generation]:
     """Continue every prompt, all in one pass. Row i is sampled with seeds[i].
 
     A stop token is not part of a result, and neither is a runaway loop (finish "loop"). The pass ends when every
     row has finished; a finished row is fed the pad token and ignored.
+
+    min_new_tokens: no row may stop before it has written this many tokens. For an answer that was begun for the
+    encoder: now and then it finds the beginning complete and would end at once.
     """
     rows = len(prompts)
     if len(seeds) != rows:
@@ -246,7 +250,11 @@ def generate_batch(
     hidden = decoder.feed_rows([[pad_id] * pad + list(prompt) for pad, prompt in zip(pads, prompts)])
     written = 0
     while True:
-        tokens = sampler(head(hidden), active)
+        logits = head(hidden)
+        if written < min_new_tokens and stops:
+            logits = logits.clone()
+            logits[..., sorted(stops)] = float("-inf")
+        tokens = sampler(logits, active)
         feed = [pad_id] * rows
         for row, token in enumerate(tokens):
             if not active[row]:

@@ -221,11 +221,23 @@ _SELF_TALK_ANYWHERE = re.compile(r"\b(?:the instructions?\b|my previous\b|the us
 
 
 def limit_words(text: str, limit: int) -> str:
-    """Whole sentences from the start, as many as fit in `limit` words; always at least the first."""
+    """Whole sentences from the start, as many as fit in `limit` words.
+
+    A sentence that does not fit is left out, unless less than half the limit would then remain: a request that was
+    continued as one long chain of clauses is cut at its last clause inside the limit and closed. When there is no
+    clause to cut at, the first sentence is kept whole.
+    """
     kept, count = [], 0
     for sentence in split_sentences(text):
         words = len(sentence.split())
-        if kept and count + words > limit:
+        if count + words > limit:
+            if count < limit // 2:
+                head = " ".join(sentence.split()[: limit - count])
+                breaks = [match.start() for match in re.finditer(r"[,;:]\s", head)]
+                if breaks:
+                    kept.append(head[: breaks[-1]].rstrip(",;:-— ") + ".")
+                elif not kept:
+                    kept.append(sentence)
             break
         kept.append(sentence)
         count += words
@@ -265,21 +277,112 @@ def lead_with_request(text: str, request: str) -> str:
     return request + ("" if request[-1] in ".!?" else ".") + " " + text
 
 
-LEADS_WITH_REQUEST = "begin with the request"  # an instruction that says this is held to it
+# An instruction that says one of these is held to it: the request is put in front when the encoder lost it ...
+LEADS_WITH_REQUEST = ("the request itself first", "begin with the request")
+# ... and sounds and smells are removed for certain.
+LEAVES_OUT_SOUNDS = ("never mentions sounds", "leave out sounds")
+
+# Words that are only heard or smelled. Left out on purpose: quiet, silent, still, howling (a storm), crash (waves),
+# rumble (a tram rumbles into view), bell, music (it is on posters) - they are seen, or said of things that are seen, at least as often.
+_UNSEEN = re.compile(
+    r"\b(?:sounds?|noises?|hum|hums|hummed|humming|murmur\w*|chatter\w*|clink\w*|clatter\w*|rustl\w*|whisper\w*|echo(?:es|ed|ing)?|buzz\w*|creak\w*|hiss\w*|laughter|voices?|"
+    r"audible|heard|silence|click(?:s|ed|ing)?|crackl\w*|chirp\w*|chim(?:e|es|ed|ing)|roar(?:s|ed|ing)?|toll(?:s|ed|ing)?|ticking|pattering|"
+    r"smell\w*|scent\w*|aroma\w*|fragran\w*|odou?rs?)\b",
+    re.I,
+)
+_CLAUSE_BREAK = re.compile(r",\s+|;\s+|\s+[—–]\s+|—")
+_JOINED = re.compile(r"^(?:and|but|while|as|yet)\s+(?=(?:the|a|an|its|his|her|their|two|three|several|one)\b)", re.I)
+
+
+def _heard(piece: str) -> bool:
+    """Does this piece of a sentence speak of a sound or a smell? Quoted lettering does not count."""
+    return bool(_UNSEEN.search(_QUOTED.sub(" ", piece)))
+
+
+def _join(clauses: list, heard: list) -> str:
+    """The clauses that are not about a sound, each with the break that stood in front of it."""
+    out = ""
+    for number, ((clause, _), bad) in enumerate(zip(clauses, heard)):
+        if bad:
+            continue
+        out += (clauses[number - 1][1] if out and number > 0 else "") + clause
+    return out
+
+
+def drop_unseen(text: str, source: str = "") -> tuple[str, int]:
+    """Take out what cannot be seen: sounds and smells. Returns the text and how many places were changed.
+
+    A sentence that is about a sound goes as a whole. Where only a later clause is ("..., their voices barely
+    audible"), that clause goes. Where the sentence opens with the sound and goes on with ", and the horizon glows",
+    the rest is kept. The first sentence (the request), a sentence with quoted lettering in the part that would be
+    lost, and anything whose loss would cost a word of the request are left alone.
+    """
+    sentences = split_sentences(text)
+    kept_before = keeps_request(text, source) if source else True
+    out, changed = [], 0
+    for number, sentence in enumerate(sentences):
+        if not _heard(sentence):
+            out.append(sentence)
+            continue
+        clauses, last = [], 0
+        for match in _CLAUSE_BREAK.finditer(sentence):
+            clauses.append((sentence[last : match.start()], match.group(0)))
+            last = match.end()
+        clauses.append((sentence[last:], ""))
+        heard = [_heard(clause) for clause, _ in clauses]
+        replacement = None  # None = no way found, leave the sentence alone
+        if number > 0 and (all(heard) or (heard[0] and len(clauses) == 1)):
+            replacement = ""
+        elif not heard[0]:
+            # later clauses only: they go, each with the break in front of it
+            lost = "".join(clause for (clause, _), bad in zip(clauses, heard) if bad)
+            if not _QUOTED.search(lost):
+                replacement = _join(clauses, heard)
+        elif number > 0:
+            rest = [(clause, bad) for (clause, _), bad in zip(clauses[1:], heard[1:])]
+            first_kept = next((clause for clause, bad in rest if not bad), None)
+            if first_kept is not None and _JOINED.match(first_kept.strip()) and not _QUOTED.search("".join(clause for clause, bad in zip([c for c, _ in clauses], heard) if bad)):
+                replacement = _JOINED.sub("", _join(clauses, heard).lstrip())
+                replacement = replacement[:1].upper() + replacement[1:]
+            elif not _QUOTED.search(sentence):
+                replacement = ""
+        if replacement is None:
+            out.append(sentence)
+            continue
+        if replacement:
+            replacement = replacement.rstrip(" ,;:")
+            if not re.search(SENTENCE_END + r"$", replacement):
+                replacement += "."
+        candidate = out + ([replacement] if replacement else []) + sentences[number + 1 :]
+        if kept_before and source and not keeps_request(" ".join(candidate), source):
+            out.append(sentence)  # the only place a word of the request stood
+            continue
+        if replacement:
+            out.append(replacement)
+        changed += 1
+    return " ".join(out), changed
 OVERLONG = 1.5  # a text longer than this many times the length asked for is cut back to it
 
 
-def prepare(answer: str, finish: str = "stop", source: str = "", instruction: str = "", words: int = 0, comments_follow: bool = False) -> Cleaned:
+def prepare(answer: str, finish: str = "stop", source: str = "", instruction: str = "", words: int = 0, comments_follow: bool = False, begins: bool = False) -> Cleaned:
     """Everything between the encoder's answer and the prompt that is used: clean-up, the request in front where the
     instruction asked for it and did not get it, a bound on the length, and protection from web UI syntax.
 
     instruction: the expansion prompt that was sent. words: the length that was asked for, 0 for none.
+    begins: the expansion is meant to start with the request (the answer was begun with it); should the text have
+        lost it all the same, as after reasoning, it is put in front.
     """
     cleaned = clean(answer, finish, source)
     if not cleaned.text:
         return cleaned
     text, notes = cleaned.text, cleaned.notes
-    if LEADS_WITH_REQUEST in instruction.lower() and not keeps_request(text, source):
+    told = instruction.lower()
+    if any(marker in told for marker in LEAVES_OUT_SOUNDS):
+        shorter, changed = drop_unseen(text, source)
+        if changed and shorter.strip():
+            text = shorter
+            notes.append("sounds or smells removed")
+    if (begins or any(marker in told for marker in LEADS_WITH_REQUEST)) and not keeps_request(text, source):
         text = lead_with_request(text, source)
         notes.append("the request was put in front (the encoder had not kept it)")
     # with no length asked for (a rewrite, not an expansion) the bound follows the request's own length

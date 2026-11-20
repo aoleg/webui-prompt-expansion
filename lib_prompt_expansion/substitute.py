@@ -42,6 +42,7 @@ class Settings:
     max_new_tokens: int = 512
     rows_per_pass: int = 10
     thinking: bool = False
+    begin: bool = False  # the expansion starts with the prompt itself: the encoder's answer is begun with it
 
 
 @dataclass
@@ -207,7 +208,7 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
     seeds = [start_seed + index for index in range(len(originals))]
     keys: list[Optional[tuple]] = []
     for (text, _tags), seed in zip(parts, seeds):
-        keys.append((id(adapter.transformer), adapter.label, system, text, options.max_new_tokens, thinking, sampling.key(), seed if sampled else None) if text else None)
+        keys.append((id(adapter.transformer), adapter.label, system, text, options.max_new_tokens, thinking, bool(settings.begin), sampling.key(), seed if sampled else None) if text else None)
 
     answers: dict[tuple, Optional[str]] = {}
     todo: list[int] = []
@@ -232,12 +233,13 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
                 state.textinfo = f"Prompt expansion: pass {number} of {passes}, {count} tokens"
 
         with writer_factory(adapter) as session:
-            written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress)
+            begun = {"starts": [parts[index][0] for index in todo]} if settings.begin else {}
+            written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun)
         if state is not None:
             state.textinfo = None
 
         for index, result in zip(todo, written):
-            cleaned = cleanup.prepare(result.text, result.finish, source=parts[index][0], instruction=system, words=settings.words, comments_follow=comments_follow)
+            cleaned = cleanup.prepare(result.text, result.finish, source=parts[index][0], instruction=system, words=settings.words, comments_follow=comments_follow, begins=settings.begin)
             report.notes += cleaned.notes
             text = cleaned.text or None
             answers[keys[index]] = text

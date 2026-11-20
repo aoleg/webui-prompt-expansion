@@ -11,12 +11,12 @@ a bus stop on a rainy street at night
 becomes, with the MOSS-Image encoder and the "Legible world" preset:
 
 ```
-A bus stop on a rainy street at night features a translucent plastic shelter with a red and white striped pole standing firmly in the wet asphalt. Raindrops streak down the glass panels, blurring the reflection of sodium-vapor streetlights that cast an orange glow over the puddles. A single passenger in a yellow raincoat waits beneath the roof, looking toward the dark road where water ripples around their boots. Above the entrance, a small illuminated sign reads "BUS STOP" in bright white letters, while a blue rectangular board below it displays the route number "42" and the destination "CITY CENTER" in crisp white text. The ground is slick with oil sheen from passing cars, mirroring the faint red taillights of a vehicle approaching slowly in the distance. Shadows stretch long across the sidewalk as the storm continues to pour, soaking the concrete and pooling near the curb.
+a bus stop on a rainy street at night, featuring a translucent yellow plastic shelter with water droplets beading on its surface, positioned on the left side of the frame. A single streetlamp casts a dim, cool blue light from above, reflecting off the wet asphalt and puddles scattered across the road. In the background, blurred red taillights of distant cars streak horizontally due to motion blur. A silver sedan is parked nearby, displaying a license plate reading "742-XJN" in black characters on a white background. Above the shelter, a rectangular digital display shows the route number "42" and destination "DOWNTOWN" in bright green LED text against a dark screen. The camera is positioned at eye level, capturing a medium shot that includes the empty bench inside the shelter and the rain-slicked pavement stretching into the foggy distance under an overcast sky.
 ```
 
 ## Examples
 
-The pictures below were made in Forge Neo by the extension's author with one short prompt each. The lathe pictures are consecutive seeds, not a selection. The expanded tram is the best of four tries made while the wording of the preset was being tuned.
+The pictures below were made in Forge Neo by the extension's author with one short prompt each. The lathe pictures are consecutive seeds, not a selection. The expanded tram is the best of four tries made while the wording of the preset was being tuned. All pictures were made with an earlier wording of the presets, which allowed more ornament than the present one (the "warm, golden tones" in the Krea 2 texts below).
 
 ### Krea 2: the same seeds without and with expansion
 
@@ -99,6 +99,7 @@ Open the **Prompt Expansion** panel in txt2img or img2img, tick **Enable**, and 
 
 - **Preset**: a ready-made instruction for the encoder. Choosing one fills the box below.
 - **Expansion prompt**: the instruction itself. Edit it freely; what is in the box is what is sent. Your own prompt follows it as the request. `{words}` is replaced by the length.
+- **Start with my prompt**: the expansion begins with your prompt, word for word, and continues it. Each preset sets this; it is off for the presets that rewrite or translate.
 - **Length (words)**: how long the result should be. 0 uses the preset's own length. It is a guide, not a count.
 - **Expansion seed**: -1 picks a new random seed for every job. Any other value is the seed of the first prompt; each next prompt of the job gets the next number.
 - **Advanced**: sampling on or off, temperature, top p, the token limit, how many prompts are written side by side, and thinking.
@@ -110,7 +111,7 @@ Every image of a batch gets its own expansion, so one typed prompt gives a varie
 | Preset | What it asks for |
 |---|---|
 | Faithful detail | Your prompt, continued with the look of each subject, materials, setting, framing and light. Adds no lettering. |
-| Legible world | The same, and things that carry writing in real life get short, plausible text in capitals: a shop name, a bus route and destination, a license plate. At most four pieces; in the language and script of the place. |
+| Legible world | The same, and things that carry writing in real life get short, plausible text in capitals: a name, a route number with its destination, a plate. At most four pieces; in the language and script of the place. |
 | Photographic | A real photograph: camera distance and angle, lens, depth of field, light source, time of day. |
 | Cinematic still | A single frame from a film: shot size, staging, light sources, colour palette. |
 | Illustration | A drawn or painted artwork. Uses the medium you name, or picks one that suits the subject. |
@@ -119,9 +120,19 @@ Every image of a batch gets its own expansion, so one typed prompt gives a varie
 | Translate and expand | Takes a prompt in any language and writes the expansion in English. Text you put in quotes stays in its original script. |
 | Minimal polish | Fixes grammar and order, adds nothing, keeps the length. |
 
-Presets are plain text files in `presets/`. To add your own, put a `.txt` file in `presets/user/` (create the folder). The file name is the preset's name; an optional first line `# words: 150` sets its default length. A user preset with the name of a shipped one replaces it.
+The first six continue your prompt: the result starts with it, word for word. The presets do not ask the encoder for that. The extension puts your prompt at the start of the encoder's answer and the encoder goes on from there, which keeps your words exactly and stops it from saying them a second time.
 
-Writing your own instruction for a 4B model: keep it under about 150 words, say what to do rather than what to avoid, and give no examples. A small model copies an example into every answer; a list such as "for example anime, watercolour" turned photo prompts into watercolours in testing.
+All presets ask for plain statements of what is in the picture, the way a precise user types a prompt: what a thing is, its colour, its material, where it is. No story, no comparisons, no sounds or smells, no mood.
+
+Presets are plain text files in `presets/`. To add your own, put a `.txt` file in `presets/user/` (create the folder). The file name is the preset's name. Two optional first lines: `# words: 150` sets its default length, and `# begin: request` ticks **Start with my prompt**. A user preset with the name of a shipped one replaces it.
+
+Writing your own instruction for a 4B to 9B model, as measured on these encoders:
+
+- **Four short parts** work best: who writes ("You turn a short image request into one text-to-image prompt, written the way a precise, experienced user types it."), what to write and how long, what to use and what never to do, and how to answer ("Answer with the prompt only").
+- **Say what the text never does** in one sentence ("it never tells a story, never compares one thing to another, and never mentions sounds, smells, feelings, mood or atmosphere"). In this frame that worked; the same list as a loose "leave out…" did not.
+- **Give no examples of content.** A small model copies them: "for example anime, watercolour" turned photo prompts into watercolours, and "a bus gets a route number and destination" put a passing bus into more than half of the street scenes that had none. Name the kind of text or detail you want, not a thing that carries it.
+- **One number per sentence.** "At most six pieces of text, each of four words or fewer" gets the two limits mixed up.
+- **Do not ask it to begin with your prompt**; tick **Start with my prompt** instead.
 
 ## How it behaves
 
@@ -129,6 +140,7 @@ Writing your own instruction for a 4B model: keep it under about 150 words, say 
 - **Dynamic Prompts and wildcards** are resolved first; the encoder only sees the final text of each image.
 - **LoRA and other `<name:value>` tags** are taken out before the encoder sees the prompt and put back at the end.
 - **Weights** such as `(red car:1.4)`, `((fog))`, `[crowd]` and `(dress:-1)` are taken out before the encoder sees the prompt and marked again in the expanded text: a phrase the text kept is wrapped again where it first occurs, a phrase whose words moved apart gets each word wrapped, and a phrase the text lost is added at the end. A phrase with a weight of zero or less (NegPiP's "less of this") is never shown to the encoder, which would only write more about it, and goes to the end as typed. When your prompt uses a weight with a number, brackets the encoder writes itself are escaped (`\(aside\)`) so that they are not read as weights. Forge Neo itself treats brackets as plain characters for the models listed above; weights act through an extension such as [NegPiP](https://github.com/aoleg/neo-krea2-negpip). With Forge's Emphasis setting on "None" the extension leaves them alone as well.
+- **Sounds and smells** are removed for certain when the expansion prompt says the text never mentions them (all presets that describe a picture do): the sentence goes, or only the clause if the rest of the sentence shows something. Quoted lettering and your own words are never removed.
 - **The negative prompt** is never touched.
 - **Hires fix** uses the expanded prompt, unless you typed a separate hires prompt.
 - **Infotext.** The prompt saved with the image is the expanded one, so pasting it back reproduces the image with the extension off. Three keys are added: `Prompt expansion` (the preset), `Expansion seed` and `Expansion source` (what you typed).
@@ -138,8 +150,8 @@ The answer is cleaned before use: introductions and Markdown are removed, a text
 
 Three more guards keep a weak answer from costing you the picture:
 
-- **Your prompt comes first.** The presets tell the encoder to begin with your prompt word for word. If the answer has lost any of its content words or its quoted lettering, your prompt is put in front of the answer. This applies to any expansion prompt that contains the words "begin with the request".
-- **Length.** An answer longer than 1.5 times the length asked for is cut back to it, at a sentence end.
+- **Your prompt comes first.** With **Start with my prompt** the encoder's answer is begun with your prompt, so it cannot be lost. Should it be missing all the same (with thinking on, the answer starts with the reasoning), it is put in front when the answer has lost any of its content words or its quoted lettering. An answer that ends right after your prompt is not accepted: the encoder must add something.
+- **Length.** An answer longer than 1.5 times the length asked for is cut back to it, at a sentence end, or at a clause when the text is one long sentence.
 - **Self-talk.** If the encoder breaks off and starts commenting on its own writing ("Wait, let me try again"), the text is cut there.
 
 A few things in a written paragraph would be misread by the web UI's own prompt syntax, so they are changed: an upper-case `AND` becomes `&` inside quoted lettering and `and` elsewhere; square brackets become round ones.
@@ -163,12 +175,14 @@ This is slower than llama.cpp. The encoder runs as ordinary PyTorch modules, one
 
 ## What to expect from each encoder
 
-- **Qwen3.5 9B (MOSS-Image)** follows the instruction most closely and writes the best text. It is the slowest. Its reasoning mode is switched off: it reasons at great length and did not finish within 1,500 tokens in testing.
-- **Qwen3-VL 8B (Qwen-Image 2.1)** is close behind: always on length, always ends cleanly, almost no non-visible detail.
-- **Qwen3-VL 4B (Krea 2)** writes well and stays on the rules.
-- **Qwen3-8B (FLUX.2 Klein 9B)**, with its own output head, is as dependable as Qwen3-VL 8B: on length, cleanly ended, every subject and all lettering kept. It adds a mood word in about a quarter of its texts. Thinking works on it. Through a borrowed head (see above) about one text in ten does not come to an end by itself and is cut back to the length.
-- **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering, but it adds sounds, smells and "atmosphere" in about a third of its texts whatever the instruction says, sometimes invents a sign, and now and then runs into a loop (the text before the loop is kept).
-- **The P-H3-Image encoder** is the weakest writer. It is a Qwen3-VL 4B whose layers differ from the stock model: it paraphrases your prompt away in most answers (your prompt is then put in front, see above), and in about one text in ten it breaks off and starts talking to itself (the text is cut there). Expect plainer expansions and the occasional prompt left as typed.
+With the shipped presets all six write plain, usable text. In the last calibration (nine presets, twenty prompts each) the number of texts with a sound or smell was 0 or 1 of 180 on every encoder, and texts with a mood word were 0 to 9.
+
+- **Qwen3.5 9B (MOSS-Image)** follows the instruction most closely and writes the best text. It is the slowest. Its reasoning mode is switched off: it reasons at great length and did not finish within 1,500 tokens in testing. With *Legible world* it finds something to write on in nearly every scene, also in a still life.
+- **Qwen3-VL 8B (Qwen-Image 2.1)** is close behind: on length, always ends cleanly.
+- **Qwen3-VL 4B (Krea 2)** writes well and stays on the rules. It likes to continue your prompt as one long chain of clauses rather than in separate sentences.
+- **Qwen3-8B (FLUX.2 Klein 9B)**, with its own output head, is as dependable as Qwen3-VL 8B. Thinking works on it. Through a borrowed head (see above) about one text in ten does not come to an end by itself and is cut back to the length.
+- **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering and now stays plain, but it is the least obedient: with *Legible world* it writes only about a third of its lettering in capitals and adds text to scenes that have nothing to write on, and now and then it runs into a loop (the text before the loop is kept).
+- **The P-H3-Image encoder** is the weakest writer. It is a Qwen3-VL 4B whose layers differ from the stock model: in a few texts of a hundred it breaks off and starts talking to itself (the text is cut there, and when too little is left the prompt is used as typed).
 
 No refusals were seen with ordinary prompts. A stock model may still decline some; then the prompt is used as typed.
 

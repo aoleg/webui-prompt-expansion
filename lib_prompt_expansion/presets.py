@@ -1,7 +1,9 @@
 """Expansion prompts kept as text files: presets/*.txt ship with the extension, presets/user/*.txt are the user's.
 
-File name: "NN Name.txt"; the number only sets the order. An optional first line "# words: 150" gives the default
-length. "{words}" in the text is replaced by the length when a request is written.
+File name: "NN Name.txt"; the number only sets the order. Optional first lines: "# words: 150" gives the default
+length, and "# begin: request" says that the expansion starts with the request itself and continues it (the request
+is then put at the start of the encoder's answer, so the instruction need not ask for it). "{words}" in the text is
+replaced by the length when a request is written.
 """
 
 import math
@@ -15,6 +17,7 @@ TOKENS_PER_WORD = 1.6  # English prose in the Qwen and Gemma tokenizers, punctua
 SLACK = 2.0  # the length is a guide: the model may write up to twice it before the token limit cuts in
 
 _HEADER = re.compile(r"^#\s*words\s*:\s*(\d+)\s*$", re.I)
+_BEGIN = re.compile(r"^#\s*begin\s*:\s*(\w+)\s*$", re.I)
 _ORDER = re.compile(r"^\d+[\s_.-]*")
 
 
@@ -23,20 +26,24 @@ class Preset:
     name: str
     text: str
     words: int  # 0 = the preset sets no length
+    begin: bool = False  # the expansion starts with the request itself, word for word
 
 
 def read_preset(path: Path) -> Preset:
-    words, lines = 0, []
+    words, begin, lines = 0, False, []
     for line in path.read_text(encoding="utf-8-sig").splitlines():
         header = _HEADER.match(line.strip())
+        start = _BEGIN.match(line.strip())
         if header and not lines:
             words = int(header.group(1))
+        elif start and not lines:
+            begin = start.group(1).lower() in ("request", "yes", "true", "on")
         elif line.lstrip().startswith("#") and not lines:
             continue
         else:
             lines.append(line.rstrip())
     name = _ORDER.sub("", path.stem).strip() or path.stem
-    return Preset(name, "\n".join(lines).strip(), words)
+    return Preset(name, "\n".join(lines).strip(), words, begin)
 
 
 def load(folder: Path = PRESET_DIR) -> list[Preset]:

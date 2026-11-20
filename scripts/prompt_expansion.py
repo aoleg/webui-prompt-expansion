@@ -53,6 +53,12 @@ class PromptExpansionScript(scripts.Script):
                 value=first.text if first else "",
                 elem_id=self.elem_id("instruction"),
             )
+            begin = gr.Checkbox(
+                label="Start with my prompt",
+                info="The expansion begins with your prompt, word for word, and continues it. Each preset sets this; off for presets that rewrite or translate.",
+                value=bool(first.begin) if first else True,
+                elem_id=self.elem_id("begin"),
+            )
             with gr.Row():
                 words = gr.Slider(label="Length (words)", info="0 = the preset's own length", minimum=0, maximum=400, step=10, value=0, elem_id=self.elem_id("words"), scale=6)
                 seed = gr.Number(label="Expansion seed", info="-1 = random; else the first prompt's seed, +1 for each next one", value=-1, precision=0, elem_id=self.elem_id("seed"), scale=4)
@@ -70,20 +76,20 @@ class PromptExpansionScript(scripts.Script):
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)
-            return gr.skip() if found is None else found.text
+            return (gr.skip(), gr.skip()) if found is None else (found.text, bool(found.begin))
 
         def reload(current):
             head_fetch.forget_failures()  # a download that failed is tried again by the next job
             fresh = [item.name for item in preset_files.load()]
             return gr.update(choices=fresh, value=current if current in fresh else (fresh[0] if fresh else None)), status_line()
 
-        preset.change(fn=pick, inputs=[preset], outputs=[instruction], show_progress=False)
+        preset.change(fn=pick, inputs=[preset], outputs=[instruction, begin], show_progress=False)
         refresh.click(fn=reload, inputs=[preset], outputs=[preset, state_text], show_progress=False)
         enabled.change(fn=status_line, inputs=[], outputs=[state_text], show_progress=False)
         random.click(fn=lambda: -1, inputs=[], outputs=[seed], show_progress=False)
         reuse.click(fn=lambda: -1 if substitute.last_start_seed is None else substitute.last_start_seed, inputs=[], outputs=[seed], show_progress=False)
 
-        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking]
+        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking, begin]
 
     def scripts_after_me(self, p) -> set[str]:
         """Names ("Class@file.py") of the scripts whose process step runs after this one."""
@@ -94,7 +100,7 @@ class PromptExpansionScript(scripts.Script):
             return set()
         return {f"{type(script).__name__}@{os.path.basename(script.filename or '')}" for script in order[mine + 1 :]}
 
-    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, *_):
+    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, begin=False, *_):
         if not enabled:
             return
         instruction = (instruction or "").strip()
@@ -113,6 +119,7 @@ class PromptExpansionScript(scripts.Script):
             max_new_tokens=int(max_tokens),
             rows_per_pass=int(rows),
             thinking=bool(thinking),
+            begin=bool(begin),
         )
 
         later = self.scripts_after_me(p)

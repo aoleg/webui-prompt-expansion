@@ -51,6 +51,21 @@ def scripts_in(text: str) -> set[str]:
     return found
 
 
+def _strip_scripts(text: str, names: set[str]) -> str:
+    """`text` without the characters of the named writing systems, except inside quoted lettering."""
+    ranges = [span for name, spans in _SCRIPTS if name in names for span in spans]
+
+    def plain(piece: str) -> str:
+        return "".join(char for char in piece if not any(low <= ord(char) <= high for low, high in ranges))
+
+    pieces, last = [], 0
+    for quoted in _QUOTED.finditer(text):
+        pieces += [plain(text[last : quoted.start()]), quoted.group(0)]
+        last = quoted.end()
+    pieces.append(plain(text[last:]))
+    return "".join(pieces)
+
+
 def split_sentences(text: str) -> list[str]:
     """Sentences with their trailing space removed; a tail without a final mark is the last item."""
     parts, start = [], 0
@@ -131,12 +146,70 @@ def clean(answer: str, finish: str = "stop", source: str = "") -> Cleaned:
         else:
             kept.append(sentence)
     if dropped:
-        text = " ".join(kept)
-        notes.append("dropped a sentence written in " + ", ".join(sorted(dropped)))
+        remaining = " ".join(kept)
+        if len(remaining.split()) * 2 >= len(text.split()):
+            text = remaining
+            notes.append("dropped a sentence written in " + ", ".join(sorted(dropped)))
+        else:
+            # the drift sits in a sentence that carries most of the text: take out the foreign words only
+            text = re.sub(r"\s{2,}", " ", _strip_scripts(text, dropped)).strip()
+            notes.append("removed words written in " + ", ".join(sorted(dropped)))
+
+    # "No text or signs appear in the image": an encoder that is told to add no lettering may say so in its answer,
+    # which puts those very words into the prompt. Such statements go, unless the request itself asks for them.
+    if not _ABSENT_ANY.search(source):
+        total = len(text.split())
+        # whole sentences first; if that would take more than half of the text (a long run-on sentence),
+        # only the clauses are cut; if even that takes too much, the text stays as it is
+        for whole_sentences in (True, False):
+            kept, removed = [], 0
+            for sentence in split_sentences(text):
+                if _ABSENT_SENTENCE.match(sentence) or _ABSENT_VERB.search(_QUOTED.sub("", sentence)):
+                    if whole_sentences:
+                        removed += 1
+                    else:
+                        kept.append(sentence)  # the statement is the sentence's backbone: cutting a piece would break it
+                    continue
+                shorter = _ABSENT_CLAUSE.sub("", sentence)
+                if shorter != sentence:
+                    removed += 1
+                    shorter = re.sub(r"\s+([.,;!?])", r"\1", shorter).strip()
+                    if shorter and shorter[-1] not in ".!?\"'":
+                        shorter += "."
+                if len(shorter.split()) >= 3:
+                    kept.append(shorter)
+            result = " ".join(kept)
+            if not removed:
+                break
+            if len(result.split()) * 2 >= total:
+                text = result
+                notes.append("removed a statement that there is no text")
+                break
 
     if len(text.split()) < 3:
         return Cleaned(None, notes + ["too little text left"])
     return Cleaned(text, notes)
+
+
+_LETTERING = r"(?:text|signage|signs?|lettering|writing|words|labels?|captions?|logos?|watermarks?)\b(?!\s+of\b)"
+_ABSENT_ANY = re.compile(r"\b(?:no|without|free of|devoid of)\b[^.;]{0,30}\b" + _LETTERING, re.I)
+# a sentence that opens by saying there is no text: the whole sentence is about that
+_ABSENT_SENTENCE = re.compile(r"^(?:there (?:is|are) )?no (?:other |additional |visible |further |added |written |printed |overlaid )*(?:objects or |elements or )?" + _LETTERING + r"(?:(?:,| or| and| nor)\s+(?:other |visible )?" + _LETTERING + r")*\b", re.I)
+# "The image contains no lettering", "The scene is devoid of any signs": the statement is the sentence's main clause
+_ABSENT_VERB = re.compile(
+    r"\b(?:is|are|was|were|remains?|appears?|stays?|contains?|shows?|displays?|has|have|bears?|features?|includes?|carr(?:y|ies))\s+(?:no|devoid of(?: any)?|free of(?: any)?|without(?: any)?)\s+"
+    r"(?:other |additional |visible |further |added |written |printed |overlaid )*(?:objects or |elements or )?" + _LETTERING,
+    re.I,
+)
+# a trailing or inserted clause: ", without any visible text or signs present in the frame"
+_ABSENT_CLAUSE = re.compile(
+    r",?\s*(?:and |but |yet )?(?:with no|without(?: any)?|free of(?: any)?|devoid of(?: any)?)\s+(?:other |additional |visible |surrounding |extra |further |added |written |printed |overlaid |superimposed )*(?:objects or |elements or )?"
+    + _LETTERING
+    + r"(?:(?:,| or| and| nor)\s+(?:other |visible )?"
+    + _LETTERING
+    + r")*(?:\s+(?:present|visible|anywhere|at all|of any kind))?(?:\s+(?:in|on|within|across)\s+(?:the |this )?(?:frame|view|scene|image|picture|composition|structure|shot|background|foreground))?",
+    re.I,
+)
 
 
 _AND = re.compile(r"\bAND\b")

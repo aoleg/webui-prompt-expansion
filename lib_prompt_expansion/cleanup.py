@@ -105,12 +105,22 @@ def clean(answer: str, finish: str = "stop", source: str = "") -> Cleaned:
         text = fenced.group(1).strip()
         notes.append("code fence removed")
 
-    lines = []
+    lines, broke_off = [], False
     for line in text.splitlines():
         line = _BULLET.sub("", _HEADING.sub("", line)).strip()
-        if line:
-            lines.append(line)
+        if not line:
+            continue
+        if lines and (_SELF_TALK.match(line) or _SELF_TALK_ANYWHERE.search(_QUOTED.sub("", line))):
+            broke_off = True  # a new line that opens with self-talk: the text ends before it (see below)
+            break
+        lines.append(line)
     text = re.sub(r"\s+", " ", " ".join(lines)).replace("**", "").replace("__", "").strip()
+    if broke_off:
+        whole = [sentence for sentence in split_sentences(text) if re.search(SENTENCE_END + "$", sentence)]
+        text = " ".join(whole)  # the sentence the encoder broke off in goes too
+        notes.append("cut where the encoder began to talk to itself")
+        if len(text.split()) < 12:
+            return Cleaned(None, notes + ["too little text left"])
 
     for pattern, note in ((_PREAMBLE, "preamble removed"), (_LABEL, "label removed")):
         shorter = pattern.sub("", text, count=1).strip()
@@ -134,6 +144,20 @@ def clean(answer: str, finish: str = "stop", source: str = "") -> Cleaned:
         if trimmed != text:
             text = trimmed
             notes.append("cut back to a complete sentence after " + ("the token limit" if finish == "length" else "a runaway loop"))
+
+    # "Wait - I need to finish the sentence. Let me complete it.": some encoders break off and talk to themselves.
+    # Everything from the first such sentence on is dropped, with the unfinished sentence before it.
+    sentences = split_sentences(text)
+    for position, sentence in enumerate(sentences):
+        if _SELF_TALK.match(sentence) or _SELF_TALK_ANYWHERE.search(_QUOTED.sub("", sentence)):
+            kept = " ".join(sentences[:position])
+            if position and not re.search(SENTENCE_END + "$", sentences[position - 1]):
+                kept = " ".join(sentences[: position - 1])
+            text = kept
+            notes.append("cut where the encoder began to talk to itself")
+            if len(text.split()) < 12:
+                return Cleaned(None, notes + ["too little text left"])
+            break
 
     # A sentence that drifts into a writing system the request does not use is dropped. Text inside quotes is
     # lettering for the picture and may be in any script.
@@ -189,6 +213,81 @@ def clean(answer: str, finish: str = "stop", source: str = "") -> Cleaned:
     if len(text.split()) < 3:
         return Cleaned(None, notes + ["too little text left"])
     return Cleaned(text, notes)
+
+
+# the opening of a sentence in which the model speaks about its own writing, and phrases that give one away anywhere
+_SELF_TALK = re.compile(r"^[\s—–\-*(]*(?:Wait\b|Let me\b|I need to\b|I(?:'|’)m\b|I am\b|I think\b|I(?:'|’)ll\b|I will\b|I should\b|I have to\b|I apologi|Sorry\b|Okay\b|Actually,|Hmm\b|But I\b|No,|Note:)", re.I)
+_SELF_TALK_ANYWHERE = re.compile(r"\b(?:the instructions?\b|my previous\b|the user\b|rewritten prompt|let me (?:correct|try|complete|start|rewrite)|that(?:'|’)s not right)", re.I)
+
+
+def limit_words(text: str, limit: int) -> str:
+    """Whole sentences from the start, as many as fit in `limit` words; always at least the first."""
+    kept, count = [], 0
+    for sentence in split_sentences(text):
+        words = len(sentence.split())
+        if kept and count + words > limit:
+            break
+        kept.append(sentence)
+        count += words
+    return " ".join(kept)
+
+
+# words of a request that carry no picture content of their own
+_FILLER = frozenset(
+    "with without from that this these those into onto over under above below behind beside between outside inside near next along across around through "
+    "their there some very which while being says reads called named style kind sort also then than have has here where what when and the".split()
+)
+
+
+def keeps_request(text: str, request: str) -> bool:
+    """Has everything in the request survived in the text?
+
+    True when the text opens with the request itself, or when every content word of the request (by its first five
+    letters, so "children" finds "child") and every piece of quoted lettering is somewhere in the text. A paraphrase
+    that kept it all is left alone; one that lost a word is not.
+    """
+    squeeze = lambda value: re.sub(r"[^\w]+", " ", value.lower()).strip()  # noqa: E731
+    if squeeze(text).startswith(squeeze(request)):
+        return True
+    for quoted in _QUOTED.finditer(request):
+        if quoted.group(0)[1:-1] not in text:
+            return False
+    low = text.lower()
+    wanted = [word for word in re.findall(r"[^\W_]+", request.lower()) if len(word) >= 4 and word not in _FILLER]
+    return all(word[:5] in low for word in wanted)
+
+
+def lead_with_request(text: str, request: str) -> str:
+    """The request, then the text: for an encoder that was told to begin with the request and paraphrased it away."""
+    request = re.sub(r"\s+", " ", request).strip()
+    if not request:
+        return text
+    return request + ("" if request[-1] in ".!?" else ".") + " " + text
+
+
+LEADS_WITH_REQUEST = "begin with the request"  # an instruction that says this is held to it
+OVERLONG = 1.5  # a text longer than this many times the length asked for is cut back to it
+
+
+def prepare(answer: str, finish: str = "stop", source: str = "", instruction: str = "", words: int = 0, comments_follow: bool = False) -> Cleaned:
+    """Everything between the encoder's answer and the prompt that is used: clean-up, the request in front where the
+    instruction asked for it and did not get it, a bound on the length, and protection from web UI syntax.
+
+    instruction: the expansion prompt that was sent. words: the length that was asked for, 0 for none.
+    """
+    cleaned = clean(answer, finish, source)
+    if not cleaned.text:
+        return cleaned
+    text, notes = cleaned.text, cleaned.notes
+    if LEADS_WITH_REQUEST in instruction.lower() and not keeps_request(text, source):
+        text = lead_with_request(text, source)
+        notes.append("the request was put in front (the encoder had not kept it)")
+    # with no length asked for (a rewrite, not an expansion) the bound follows the request's own length
+    limit = round(OVERLONG * words) if words > 0 else max(80, 12 * len(source.split()))
+    if len(text.split()) > limit:
+        text = limit_words(text, limit)
+        notes.append("cut back to the length asked for" if words > 0 else "cut back: far longer than the request")
+    return Cleaned(neutralise(text, comments_follow), notes)
 
 
 _LETTERING = r"(?:text|signage|signs?|lettering|writing|words|labels?|captions?|logos?|watermarks?)\b(?!\s+of\b)"

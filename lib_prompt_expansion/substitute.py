@@ -4,6 +4,7 @@ Whatever goes wrong, the job goes on with the prompts as typed.
 """
 
 import logging
+import os
 import re
 import secrets
 import time
@@ -121,6 +122,8 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
     if adapter is None:
         adapter = find_adapter(p.sd_model)
     report.writer = adapter.label
+    if getattr(adapter, "head_borrowed", False):
+        report.notes.append("output head from " + os.path.basename(adapter.head_file))
 
     sampling = settings.sampling
     sampled = sampling.do_sample and sampling.temperature > 0.0
@@ -168,9 +171,9 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
             state.textinfo = None
 
         for index, result in zip(todo, written):
-            cleaned = cleanup.clean(result.text, result.finish, source=parts[index][0])
+            cleaned = cleanup.prepare(result.text, result.finish, source=parts[index][0], instruction=system, words=settings.words, comments_follow=comments_follow)
             report.notes += cleaned.notes
-            text = cleanup.neutralise(cleaned.text, comments_follow) if cleaned.text else None
+            text = cleaned.text or None
             answers[keys[index]] = text
             if result.finish != "interrupted":
                 _remember(keys[index], text)

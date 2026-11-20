@@ -16,19 +16,24 @@ A bus stop on a rainy street at night features a shelter with a red roof where w
 
 ## Supported text encoders
 
-| Image model | Text encoder | Status |
+| Image model | Text encoder | Notes |
 |---|---|---|
-| Z-Image, FLUX.2 Klein 4B | Qwen3-4B | Tested |
-| Krea 2 | Qwen3-VL 4B | Tested |
-| MOSS-Image | Qwen3.5 9B | Tested |
-| Qwen-Image 2.1 | Qwen3-VL 8B | Supported, not tested |
-| FLUX.2 Klein 9B | Qwen3-8B | Supported, not tested; needs an encoder file that still contains `lm_head` |
+| Z-Image, FLUX.2 Klein 4B | Qwen3-4B | |
+| Krea 2 | Qwen3-VL 4B | |
+| Qwen-Image 2.1 | Qwen3-VL 8B | |
+| MOSS-Image | Qwen3.5 9B | |
+| P-H3-Image, and MiniMax-H3-Image run with the P-H3-Image encoder | Qwen3-VL 4B | Through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo) |
+| FLUX.2 Klein 9B | Qwen3-8B | Needs an output head from a second file, see below |
 
-"Tested" means the encoder was run on its own, on real encoder files, through Forge Neo's loader.
+All six were run on real encoder files through Forge Neo's own loader.
 
-Flux.1, Chroma, Wan, SD 1.5 and SDXL cannot be supported: T5 and CLIP are encoders only and cannot write text. With such a checkpoint the extension does nothing and says so in its panel.
+**FLUX.2 Klein 9B.** Qwen3-8B keeps its output table (`lm_head`) apart from its input table, and the usual fp8 encoder file for Klein 9B was saved without it. The extension then borrows a head of the same size from another text encoder file in your text encoder folders. The Qwen-Image 2.1 encoder (Qwen3-VL 8B) has one, and Qwen3-VL 8B is built on Qwen3-8B, so the two fit: with that file on disk, Klein 9B writes well. The panel names the file it borrows from. Without such a file the extension says so and leaves your prompts as typed. An encoder file that contains its own `lm_head` is used directly.
 
-Quantised encoder files work. A scaled fp8 Qwen3-VL 4B and an int8 Qwen3.5 9B were tested; GGUF files were not.
+**MiniMax-H3-Image with its own 32B encoder** cannot be supported: that encoder is cut off after 50 of its 64 layers and has no output side at all.
+
+Flux.1, Chroma, Wan, SD 1.5 and SDXL cannot be supported either: T5 and CLIP are encoders only and cannot write text. With such a checkpoint the extension does nothing and says so in its panel.
+
+Quantised encoder files work: scaled fp8, fp8 mixed and int8 files were tested. GGUF files were not.
 
 ## Install
 
@@ -84,6 +89,12 @@ Writing your own instruction for a 4B model: keep it under about 150 words, say 
 
 The answer is cleaned before use: introductions and Markdown are removed, a text cut off by the token limit is trimmed to its last full sentence, and a sentence that drifts into another writing system is dropped. A small model sometimes locks onto one word and repeats it; that is detected, and the text before it is kept.
 
+Three more guards keep a weak answer from costing you the picture:
+
+- **Your prompt comes first.** The presets tell the encoder to begin with your prompt word for word. If the answer has lost any of its content words or its quoted lettering, your prompt is put in front of the answer. This applies to any expansion prompt that contains the words "begin with the request".
+- **Length.** An answer longer than 1.5 times the length asked for is cut back to it, at a sentence end.
+- **Self-talk.** If the encoder breaks off and starts commenting on its own writing ("Wait, let me try again"), the text is cut there.
+
 A few things in a written paragraph would be misread by the web UI's own prompt syntax, so they are changed: an upper-case `AND` becomes `&` inside quoted lettering and `and` elsewhere; square brackets become round ones.
 
 ## Speed and memory
@@ -94,6 +105,9 @@ Measured on an RTX 5090, encoder only, ten prompts in one pass, about 150 words 
 |---|---|---|---|
 | Qwen3-4B | bf16 | 6.5 s | about 2.5 GB |
 | Qwen3-VL 4B | scaled fp8 | 10 s | about 3 GB |
+| Qwen3-VL 4B (P-H3-Image) | int8 | 10 s | about 3 GB |
+| Qwen3-VL 8B | int8 | 9 s | about 2.5 GB |
+| Qwen3-8B | fp8 mixed, borrowed head | 12 s | about 3.6 GB |
 | Qwen3.5 9B | int8 | 20 s | about 3.8 GB |
 
 The extra memory (the output table and the cache of the pass) is released when the job's prompts are written, before the image model starts. A single prompt takes nearly as long as ten.
@@ -103,8 +117,11 @@ This is slower than llama.cpp. The encoder runs as ordinary PyTorch modules, one
 ## What to expect from each encoder
 
 - **Qwen3.5 9B (MOSS-Image)** follows the instruction most closely and writes the best text. It is the slowest. Its reasoning mode is switched off: it reasons at great length and did not finish within 1,500 tokens in testing.
+- **Qwen3-VL 8B (Qwen-Image 2.1)** is close behind: always on length, always ends cleanly, almost no non-visible detail.
 - **Qwen3-VL 4B (Krea 2)** writes well and stays on the rules.
-- **Qwen3-4B (Z-Image, Klein 4B)** is the weakest writer of the three. It keeps your subjects and lettering, but it adds sounds, smells and "atmosphere" in about a third of its texts whatever the instruction says, sometimes invents a sign, and now and then runs into a loop (the text before the loop is kept).
+- **Qwen3-8B (FLUX.2 Klein 9B)** keeps every subject and all lettering, but writes through a borrowed output head. About one text in ten does not come to an end by itself and is cut back to the length.
+- **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering, but it adds sounds, smells and "atmosphere" in about a third of its texts whatever the instruction says, sometimes invents a sign, and now and then runs into a loop (the text before the loop is kept).
+- **The P-H3-Image encoder** is the weakest writer. It is a Qwen3-VL 4B whose layers differ from the stock model: it paraphrases your prompt away in most answers (your prompt is then put in front, see above), and in about one text in ten it breaks off and starts talking to itself (the text is cut there). Expect plainer expansions and the occasional prompt left as typed.
 
 No refusals were seen with ordinary prompts. A stock model may still decline some; then the prompt is used as typed.
 

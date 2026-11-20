@@ -16,7 +16,7 @@ a bus stop on a rainy street at night, featuring a translucent yellow plastic sh
 
 ## Examples
 
-The pictures below were made in Forge Neo by the extension's author with one short prompt each. The lathe pictures are consecutive seeds, not a selection. The expanded tram is the best of four tries made while the wording of the preset was being tuned. All pictures were made with an earlier wording of the presets, which allowed more ornament than the present one (the "warm, golden tones" in the Krea 2 texts below).
+The pictures below were made in Forge Neo by the extension's author with one short prompt each. The lathe pictures are consecutive seeds, not a selection. The expanded tram is the best of four tries made while the wording of the preset was being tuned. The first three sheets were made with an earlier wording of the presets, which allowed more ornament than the present one (the "warm, golden tones" in the Krea 2 texts below); the last sheet shows the present wording.
 
 ### Krea 2: the same seeds without and with expansion
 
@@ -42,7 +42,7 @@ The same typed prompt. Expanded prompt of the first image (preset *Attribute cap
 
 What you get. Each picture follows its own text closely: the yellow helmet, the sparks and the control panel with round dials in the first image, the blue wall with the stack of crates in the third, the white helmet with ventilation holes in the sixth are all in the texts. The set is varied in framing, colour and setting, and every image is clean and evenly lit. The look is that of a present-day industrial photograph rather than of 1950s Kodachrome, and in two of the nine images the close-up turned into a wider shot, because a caption that lists the things in the background asks for them to be shown.
 
-### Lettering: the Legible world preset
+### Lettering: the Legible world preset, earlier wording
 
 ![Krea 2, a tram as typed and with the Legible world preset](img/krea2_tram.jpg)
 
@@ -55,6 +55,24 @@ Expanded prompt of the right image (preset *Legible world*):
 > A classic red-and-yellow tram from the 1950s glides along tracks embedded in a sunlit town square, its polished metal body gleaming under overhead lamps. The tram’s front window reflects the pale blue sky and scattered clouds, while its side panels bear faded lettering: “TOWNLINE TRAMWAY” in bold black capitals above “ROUTE 3 TO CENTRAL STATION.” Its wheels click softly against the rails as it moves past a stone bench and a lamppost with a brass globe. A small sign beside the tram reads “OPEN DAILY 8 AM–6 PM” in green letters on white background. Behind it, a café awning displays “COFFEE & CROISSANTS” in cursive script. The tram’s destination board flickers with “CENTRAL STATION” in bright yellow, and its license plate reads “TRM-5472.”
 
 What changes. Left to itself, the model knows that a tram has a route number and a destination board but not what they say: the board reads "ARPE", the number is "06", and the lettering along the side is a squiggle. With the expanded prompt every piece of writing has been decided beforehand, in capitals, and the model draws it: the company name on the roof board, the destination, the plate "TRM-5472", the kerb sign and the café awning. One board lost a letter ("CENTRAL TATION"); short texts in capitals are what the image models get right most often, which is why the preset asks for them.
+
+### Legible world, present wording
+
+![Krea 2, one prompt, two seeds, with the present Legible world preset](img/krea2_tram_legible.jpg)
+
+Prompt as typed:
+
+> A classic red-and-yellow tram from the 1950s on tracks on a market square, surrounded by shops and businesses.
+
+Expanded prompt of the left image:
+
+> A classic red-and-yellow tram from the 1950s on tracks on a market square, surrounded by shops and businesses. The tram’s body is painted in glossy red with bold yellow stripes along its sides, featuring chrome accents on the front grille and side mirrors; its wheels are black with visible steel rims, rolling along dark metal tracks embedded in a paved square. To the left, a shopfront displays a sign reading “KLEINER BÄCKEREI” in black serif lettering on a white background, while to the right, another storefront has a sign that says “MÜLLER’S GASTHAUS” in red capital letters on a wooden panel. Above the tram, a street sign reads “MAINSTRASSE 123” in white text on a green background, mounted on a wrought-iron post. The tram’s destination board above the windshield shows “ZENTRALBAHNHALLE” in black font on a yellow panel.
+
+Expanded prompt of the right image:
+
+> A classic red-and-yellow tram from the 1950s on tracks on a market square, surrounded by shops and businesses. The tram’s body is painted in glossy red with bold yellow stripes along its sides, featuring chrome accents and round headlights; its front displays a black sign with white lettering reading "LINE 7 TO CENTRAL STATION". The tracks are made of dark steel, embedded in a paved square with cobblestone edges. Shops lining the square have wooden facades and glass windows, one displaying a faded poster with “OPEN DAILY” in black ink on a yellow background. A small blue sign above a shop door reads “Café & Bakery” in white sans-serif font. The tram’s side mirror reflects a blurred passerby, and its rear has a weathered metal plate with “TRAM NO. 421” engraved in raised letters.
+
+What you get. Both texts begin with the typed prompt, word for word, and go on in plain statements: what a thing is, its colour, its material, where it is. Each seed decides for itself where the square is, and the lettering follows. The left text put it in a German-speaking town: a bakery, an inn, a street sign and the tram's destination, all in German, and the model drew them as written: one letter of the destination came out slightly malformed, and the street sign is too small to read. The German is mostly right ("Kleiner Bäckerei" should be "Kleine Bäckerei", and the destination is an invented word). The right text chose English: the line and destination on the roof board, a poster, a shop sign and the tram's number plate.
 
 ## Supported text encoders
 

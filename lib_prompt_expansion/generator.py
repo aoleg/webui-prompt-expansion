@@ -20,7 +20,7 @@ import torch
 from backend import memory_management
 from backend.nn.llm import llama as forge_llama
 
-from .replay import Stepper
+from .replay import Stepper, streams_off
 from .sampling import BatchSampler, SamplingOptions
 
 
@@ -256,44 +256,46 @@ def generate_batch(
     stops = set(stop_ids)
     active = [True] * rows
 
-    logits = head(decoder.feed_rows([[pad_id] * pad + list(prompt) for pad, prompt in zip(pads, prompts)]))
-    stepper = Stepper(decoder, head, enabled=replay)
-    written = 0
-    while True:
-        if written < min_new_tokens and stops:
-            logits = logits.clone()
-            logits[..., sorted(stops)] = float("-inf")
-        tokens = sampler(logits, active)
-        feed = [pad_id] * rows
-        for row, token in enumerate(tokens):
-            if not active[row]:
-                continue
-            result = results[row]
-            if token in stops:
-                result.finish, active[row] = "stop", False
-                continue
-            result.tokens.append(token)
-            feed[row] = token
-            cut = loop_start(result.tokens) if stop_on_loop else None
-            if cut is not None:
-                del result.tokens[cut:]  # the first round of the loop is already off the rails; drop it too
-                result.finish, active[row] = "loop", False
-            elif len(result.tokens) >= max_new_tokens:
-                result.finish, active[row] = "length", False
-        written += 1
-        if on_token is not None:
-            on_token(written)
-        if not any(active):
-            break
-        if should_stop is not None and should_stop():
-            for row in range(rows):
-                if active[row]:
-                    results[row].finish = "interrupted"
-            break
-        sampler.record(feed, active)
-        logits = stepper.feed(feed)
-    for result in results:
-        result.replayed = stepper.replayed
+    # with --cuda-stream Forge waits for a side stream on every layer call; nothing is being moved here
+    with streams_off(decoder):
+        logits = head(decoder.feed_rows([[pad_id] * pad + list(prompt) for pad, prompt in zip(pads, prompts)]))
+        stepper = Stepper(decoder, head, enabled=replay)
+        written = 0
+        while True:
+            if written < min_new_tokens and stops:
+                logits = logits.clone()
+                logits[..., sorted(stops)] = float("-inf")
+            tokens = sampler(logits, active)
+            feed = [pad_id] * rows
+            for row, token in enumerate(tokens):
+                if not active[row]:
+                    continue
+                result = results[row]
+                if token in stops:
+                    result.finish, active[row] = "stop", False
+                    continue
+                result.tokens.append(token)
+                feed[row] = token
+                cut = loop_start(result.tokens) if stop_on_loop else None
+                if cut is not None:
+                    del result.tokens[cut:]  # the first round of the loop is already off the rails; drop it too
+                    result.finish, active[row] = "loop", False
+                elif len(result.tokens) >= max_new_tokens:
+                    result.finish, active[row] = "length", False
+            written += 1
+            if on_token is not None:
+                on_token(written)
+            if not any(active):
+                break
+            if should_stop is not None and should_stop():
+                for row in range(rows):
+                    if active[row]:
+                        results[row].finish = "interrupted"
+                break
+            sampler.record(feed, active)
+            logits = stepper.feed(feed)
+        for result in results:
+            result.replayed = stepper.replayed
     stepper.release()
     return results
 

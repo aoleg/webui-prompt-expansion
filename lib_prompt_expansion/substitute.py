@@ -58,11 +58,15 @@ class Report:
     seconds: float = 0.0
     notes: list[str] = field(default_factory=list)
     weighted: bool = False  # a prompt of the job, as it will be encoded, carries a weight
+    tokens: int = 0  # tokens written in this job
+    writing: float = 0.0  # seconds spent writing them
 
     def line(self) -> str:
         if not self.writer:
             return "; ".join(self.notes) or "nothing done"
         text = f"{self.expanded} of {self.total} prompts expanded by {self.writer} in {self.seconds:.1f} s"
+        if self.tokens and self.writing > 0:
+            text += f" ({self.tokens} tokens, {self.tokens / self.writing:.0f} a second)"
         if self.start_seed is not None:
             text += f", seeds from {self.start_seed}"
         if self.reused:
@@ -239,9 +243,19 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
             begun = {"starts": [parts[index][0] for index in todo]} if settings.begin else {}
             # named only when switched off, as `starts` is named only when used: a writer need not know them
             speed = {name: False for name in ("replay", "int8_kernel") if not getattr(settings, name)}
+            started = time.perf_counter()
             written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
+            report.writing = time.perf_counter() - started
         if state is not None:
             state.textinfo = None
+        report.tokens = sum(int(getattr(result, "tokens", 0) or 0) for result in written)
+        # the slow way is worth a word in every job's line, not only once per session
+        if getattr(settings, "replay", True) and report.tokens and not any(getattr(result, "replayed", False) for result in written):
+            from . import replay as recorded_step
+
+            reason = getattr(recorded_step, "last_reason", None)
+            if reason and reason != recorded_step.NO_CUDA:
+                report.notes.append(f"written token by token: {reason}")
 
         for index, result in zip(todo, written):
             cleaned = cleanup.prepare(result.text, result.finish, source=parts[index][0], instruction=system, words=settings.words, comments_follow=comments_follow, begins=settings.begin)

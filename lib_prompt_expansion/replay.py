@@ -15,6 +15,14 @@ the first replay, and the recording is used only if the two results agree. In ev
 part of the encoder not on the GPU, a layer stack that looks different, an error while recording) the decoder
 goes on writing the way it always has, and one line in the console says why.
 
+Forge's --cuda-stream. With that flag every layer call takes one of Forge's side streams and waits for it, so that
+weights can be brought to the GPU while the previous layer still computes. A wait for another stream cannot be
+recorded, and it costs time on every call even when there is nothing to bring: here the whole text encoder is on
+the GPU already (that is checked). So for the time of a writing pass the side streams are switched off
+(`streams_off`), and switched on again when the pass ends, whatever happens. Without that the recorded step could
+not be used with --cuda-stream at all, and the decoder's own steps took half as long again (78 ms against 51 ms
+on the MOSS-Image encoder).
+
 The recording ends at the hidden state. The output head runs after it in the ordinary way: it is one operation,
 and it may be anything (a layer Forge loaded, a matrix read from another file).
 
@@ -39,6 +47,7 @@ AGREEMENT = 0.999
 NO_CUDA = "the text encoder is not on a CUDA device"  # nothing to tell anybody: there is no faster way here
 
 _said: set[str] = set()
+last_reason: Optional[str] = None  # why the last pass was written without the recorded step; None when it was used
 
 
 class Unsuited(Exception):
@@ -46,6 +55,8 @@ class Unsuited(Exception):
 
 
 def _say(reason: str):
+    global last_reason
+    last_reason = reason
     if reason != NO_CUDA and reason not in _said:
         _said.add(reason)
         print(f"{TAG} Writing without the recorded step: {reason}.")
@@ -56,12 +67,38 @@ def unsuited(decoder) -> Optional[str]:
     device = decoder.device
     if device.type != "cuda" or not hasattr(torch.cuda, "CUDAGraph"):
         return NO_CUDA
-    if getattr(memory_management, "NUM_STREAMS", 0):
-        return "Forge moves weights on separate streams (--cuda-stream)"
-    for tensor in list(decoder.stack.parameters()) + list(decoder.stack.buffers()):
-        if tensor.device != device:
-            return "part of the text encoder is not on the GPU"
+    if not on_device(decoder):
+        return "part of the text encoder is not on the GPU"
     return None
+
+
+def on_device(decoder) -> bool:
+    """Is every weight and buffer of the layer stack on the decoder's device?"""
+    device = decoder.device
+    return all(tensor.device == device for tensor in list(decoder.stack.parameters()) + list(decoder.stack.buffers()))
+
+
+class streams_off:
+    """Forge's side streams for weights (--cuda-stream), switched off for the time of a writing pass.
+
+    Does nothing without that flag, off a CUDA device, or while part of the text encoder is not on the GPU (then
+    the streams have work to do). Forge decides per call from this one number, so nothing else needs to know.
+    """
+
+    def __init__(self, decoder):
+        self.decoder, self.kept = decoder, None
+
+    def __enter__(self):
+        streams = getattr(memory_management, "NUM_STREAMS", 0)
+        if streams and self.decoder.device.type == "cuda" and on_device(self.decoder):
+            self.kept = streams
+            memory_management.NUM_STREAMS = 0
+        return self
+
+    def __exit__(self, *_):
+        if self.kept is not None:
+            memory_management.NUM_STREAMS, self.kept = self.kept, None
+        return False
 
 
 class Step:
@@ -128,7 +165,7 @@ class Step:
         try:
             self.rewind(saved)
             graph = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(graph, capture_error_mode="thread_local"):
+            with streams_off(self.decoder), torch.cuda.graph(graph, capture_error_mode="thread_local"):
                 self.hidden = self.compute()
             graph.replay()
             agreement = float(torch.nn.functional.cosine_similarity(self.hidden.float(), expected.float(), dim=-1).min())
@@ -140,6 +177,8 @@ class Step:
                 values[:, :, slot : slot + 1] = value
             self.hidden = None
             raise
+        global last_reason
+        last_reason = None
         self.agreement = agreement
         self.graph = graph
         self.adopt()

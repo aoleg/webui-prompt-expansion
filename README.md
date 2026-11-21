@@ -136,8 +136,8 @@ There are no extra Python packages.
 
 Open the **Prompt Expansion** panel in txt2img or img2img, tick **Enable**, and generate as usual.
 
-- **Preset**: a ready-made instruction for the encoder. Choosing one fills the box below.
-- **Expansion prompt**: the instruction itself. Edit it freely; what is in the box is what is sent. Your own prompt follows it as the request. `{words}` is replaced by the length.
+- **Preset**: a ready-made instruction for the encoder. Choosing one fills the box below. The panel opens with the preset you chose last time.
+- **Expansion prompt**: the instruction itself. Edit it freely; what is in the box is what is sent. Your own prompt follows it as the request. `{words}` is replaced by the length. An edit lasts until the page is loaded again: the text is not saved, and the panel then shows the preset's own text. To keep an edited instruction, save it as a preset of your own (see Presets below).
 - **Start with my prompt**: the expansion begins with your prompt, word for word, and continues it. Each preset sets this; it is off for the presets that rewrite or translate.
 - **Length (words)**: how long the result should be. 0 uses the preset's own length. It is a guide, not a count.
 - **Expansion seed**: -1 picks a new random seed for every job. Any other value is the seed of the first prompt; each next prompt of the job gets the next number.

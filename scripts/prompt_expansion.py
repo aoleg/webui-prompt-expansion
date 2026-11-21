@@ -24,9 +24,35 @@ SPEED_OPTIONS = {
 }
 
 
+# The preset chosen last time, kept in Forge's settings (a section without a page, so it is not shown). The panel
+# opens with that preset and its text; the expansion prompt itself is never saved, so an edited or stale text
+# cannot hide the preset that is selected.
+LAST_PRESET = "prompt_expansion_last_preset"
+
+
 def register_settings():
     section = ("prompt_expansion", TITLE)
     shared.options_templates.update(shared.options_section(section, {name: shared.OptionInfo(True, label).info(info) for name, (label, info) in SPEED_OPTIONS.items()}))
+    shared.options_templates.update(shared.options_section((None, TITLE), {LAST_PRESET: shared.OptionInfo("", "Last chosen Prompt Expansion preset")}))
+
+
+def remembered_preset(names: list):
+    """The preset to open with: the one chosen last time if it is still offered, else the first. Read at every page load."""
+    presets = [preset for preset in preset_files.load() if preset.name in names]
+    if not presets:
+        return None
+    return preset_files.find(presets, getattr(shared.opts, LAST_PRESET, "")) or presets[0]
+
+
+def remember_preset(name):
+    """Keep the chosen preset for the next start. Quietly does nothing with frozen settings."""
+    if not name or getattr(shared.opts, LAST_PRESET, "") == name:
+        return
+    try:
+        if shared.opts.set(LAST_PRESET, name):
+            shared.opts.save(shared.config_filename)
+    except Exception:  # noqa: BLE001 - --freeze-settings and the like; remembering is a convenience
+        pass
 
 
 if getattr(shared, "options_templates", None) is not None:
@@ -79,27 +105,41 @@ class PromptExpansionScript(scripts.Script):
     def ui(self, is_img2img):
         presets = preset_files.load()
         names = [preset.name for preset in presets]
-        first = presets[0] if presets else None
+
+        # Filled from the remembered preset whenever the page loads, not from ui-config.json.
+        def opening_name():
+            chosen = remembered_preset(names)
+            return chosen.name if chosen else None
+
+        def opening_text():
+            chosen = remembered_preset(names)
+            return chosen.text if chosen else ""
+
+        def opening_begin():
+            chosen = remembered_preset(names)
+            return bool(chosen.begin) if chosen else True
 
         # No gr.Group in here: sd-webui-tabs-extension hides a panel that contains one.
         with InputAccordion(False, label=TITLE, elem_id=self.elem_id("enable")) as enabled:
             state_text = gr.Markdown(status_line(), elem_id=self.elem_id("status"))
             with gr.Row():
-                preset = gr.Dropdown(label="Preset", choices=names, value=first.name if first else None, elem_id=self.elem_id("preset"), scale=8)
+                preset = gr.Dropdown(label="Preset", choices=names, value=opening_name, elem_id=self.elem_id("preset"), scale=8)
                 refresh = ToolButton(value=refresh_symbol, elem_id=self.elem_id("refresh"), tooltip="Reload the preset files, check the loaded checkpoint, and let a failed download be tried again")
             instruction = gr.Textbox(
                 label="Expansion prompt",
                 info="The instruction given to the text encoder; your prompt follows as the request. {words} is replaced by the length. Edit freely.",
                 lines=6,
-                value=first.text if first else "",
+                value=opening_text,
                 elem_id=self.elem_id("instruction"),
             )
             begin = gr.Checkbox(
                 label="Start with my prompt",
                 info="The expansion begins with your prompt, word for word, and continues it. Each preset sets this; off for presets that rewrite or translate.",
-                value=bool(first.begin) if first else True,
+                value=opening_begin,
                 elem_id=self.elem_id("begin"),
             )
+            for component in (preset, instruction, begin):
+                component.do_not_save_to_config = True
             with gr.Row():
                 words = gr.Slider(label="Length (words)", info="0 = the preset's own length", minimum=0, maximum=400, step=10, value=0, elem_id=self.elem_id("words"), scale=6)
                 seed = gr.Number(label="Expansion seed", info="-1 = random; else the first prompt's seed, +1 for each next one", value=-1, precision=0, elem_id=self.elem_id("seed"), scale=4)
@@ -149,7 +189,10 @@ class PromptExpansionScript(scripts.Script):
 
         def pick(name):
             found = preset_files.find(preset_files.load(), name)
-            return (gr.skip(), gr.skip()) if found is None else (found.text, bool(found.begin))
+            if found is None:
+                return gr.skip(), gr.skip()
+            remember_preset(found.name)
+            return found.text, bool(found.begin)
 
         def reload(current):
             head_fetch.forget_failures()  # a download that failed is tried again by the next job

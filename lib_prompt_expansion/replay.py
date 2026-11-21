@@ -165,8 +165,20 @@ class Step:
         try:
             self.rewind(saved)
             graph = torch.cuda.CUDAGraph()
-            with streams_off(self.decoder), torch.cuda.graph(graph, capture_error_mode="thread_local"):
-                self.hidden = self.compute()
+            # The result is copied into a buffer made before the recording. A tensor that is made while recording
+            # and outlives it belongs to the recording's memory; freeing it later is allowed, but the
+            # cudaMallocAsync allocator (Forge's --cuda-malloc) prints a warning for every such tensor.
+            self.hidden = torch.zeros((self.decoder.rows, self.decoder.config.hidden_size), dtype=self.decoder.dtype, device=self.decoder.device)
+            # The same goes for the scratch memory of the GPU's linear algebra library: it is taken at the first
+            # matrix product on a stream. The recording gets a stream of its own, and one small product is done
+            # on it beforehand.
+            stream = torch.cuda.Stream(device=self.decoder.device)
+            with torch.cuda.stream(stream):
+                warm = torch.ones((2, 2), dtype=self.decoder.dtype, device=self.decoder.device)
+                torch.mm(warm, warm)
+                del warm
+            with streams_off(self.decoder), torch.cuda.graph(graph, stream=stream, capture_error_mode="thread_local"):
+                self.hidden.copy_(self.compute())
             graph.replay()
             agreement = float(torch.nn.functional.cosine_similarity(self.hidden.float(), expected.float(), dim=-1).min())
             if not agreement >= AGREEMENT:  # also false for NaN

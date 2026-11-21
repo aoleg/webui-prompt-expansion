@@ -200,18 +200,23 @@ A few things in a written paragraph would be misread by the web UI's own prompt 
 
 Measured on an RTX 5090, encoder only, ten prompts in one pass, about 150 words each:
 
-| Encoder | File | Time for 10 prompts | Extra VRAM while writing |
-|---|---|---|---|
-| Qwen3-4B | bf16 | 6.5 s | about 2.5 GB |
-| Qwen3-VL 4B | scaled fp8 | 10 s | about 3 GB |
-| Qwen3-VL 4B (P-Image-OSS) | int8 | 10 s | about 3 GB |
-| Qwen3-VL 8B | int8 | 9 s | about 2.5 GB |
-| Qwen3-8B | fp8 mixed, with its own head | 12 s | about 3.6 GB |
-| Qwen3.5 9B | int8 | 20 s | about 3.8 GB |
+| Encoder | File | Time for 10 prompts | With both speed-ups off | Extra VRAM while writing |
+|---|---|---|---|---|
+| Qwen3-4B | fp16 | 4.2 s | 5.8 s | about 2.5 GB |
+| Qwen3-VL 4B | scaled fp8 | 3.1 s | 8.6 s | about 3 GB |
+| Qwen3-VL 4B (P-Image-OSS, stock) | int8 ConvRot | 2.8 s | 8.3 s | about 3 GB |
+| Qwen3-VL 8B | int8 ConvRot | 2.9 s | 8.9 s | about 2.5 GB |
+| Qwen3-8B | fp8 mixed, with its own head | 4.2 s | 7.7 s | about 3.6 GB |
+| Qwen3.5 9B | int8 ConvRot | 3.4 s | 10.0 s | about 3.8 GB |
 
 The extra memory (the output table and the cache of the pass) is released when the job's prompts are written, before the image model starts. A single prompt takes nearly as long as ten.
 
-This is slower than llama.cpp. The encoder runs as ordinary PyTorch modules, one small operation at a time, and the time goes into that overhead rather than into arithmetic. Writing several prompts in one pass is what makes it practical.
+A text is written one token at a time, and every token is a trip through the whole encoder: one to two thousand small GPU operations. Started one by one from Python they keep the GPU waiting; it was busy a third of the time, at about 125 W. Two things remove that:
+
+- **A recorded step.** When the encoder has read your prompt, one such trip is recorded as a CUDA graph and replayed for every further token. The GPU is then busy all the time. The numbers are the same as without it; on Qwen3.5 the last bit of rounding can differ, which changes a word now and then, as another seed would.
+- **The int8 kernel.** Forge runs an int8 text encoder by converting each weight to bf16 on every call, which is right for the conditioning and slow for writing. While a text is written, int8 ConvRot encoders go through the int8 kernel that Forge uses in its int8 image models, which reads the weights as they are stored. The activations are quantised as well, so the wording of an expansion comes out slightly different: measured with the same text fed to both, the next word was the same in 95 to 98 places of 100, and elsewhere it was the other path's second choice. The conditioning of your image is not affected, because Forge encodes the finished prompts its own way.
+
+Both stand down by themselves, with one line in the console, where they cannot be used: the recorded step needs a CUDA GPU with the whole text encoder on it, and Forge started without `--cuda-stream`. Both can be switched off under **Settings > Prompt Expansion**. An *Expansion seed* gives the same text again only with the same two settings.
 
 ## What to expect from each encoder
 

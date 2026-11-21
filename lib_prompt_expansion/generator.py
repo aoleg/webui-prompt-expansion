@@ -6,7 +6,8 @@ This module repeats the steps of Llama2_.forward with that cache, so one new tok
 of work. The design follows ComfyUI's BaseGenerate (comfy/text_encoders/llama.py, GPL-3.0).
 
 Several texts are written in one pass: the time of a step is almost all per-call overhead, so ten rows cost
-about what one row costs.
+about what one row costs. That overhead is what replay.py removes: after the request, one step is recorded as a
+CUDA graph and replayed for every further token.
 
 Nothing here patches Forge. If backend/nn/llm/llama.py changes its block interface, `Decoder` is the only
 place to adapt.
@@ -19,6 +20,7 @@ import torch
 from backend import memory_management
 from backend.nn.llm import llama as forge_llama
 
+from .replay import Stepper
 from .sampling import BatchSampler, SamplingOptions
 
 
@@ -30,6 +32,7 @@ class UnsupportedEncoder(Exception):
 class Generation:
     tokens: list[int] = field(default_factory=list)
     finish: str = "stop"  # stop | length | interrupted | loop
+    replayed: bool = False  # written from the recorded step (replay.py), not by the decoder token by token
 
 
 # (cycle length, repeats) that count as a runaway loop. A small model can lock onto one token or a short
@@ -88,7 +91,9 @@ class Decoder:
         self.length = 0
 
         shape = (rows, self.config.num_key_value_heads, capacity, self.config.head_dim)
-        self.cache = [(torch.empty(shape, device=self.device, dtype=self.dtype), torch.empty(shape, device=self.device, dtype=self.dtype), 0) for _ in layers]
+        # zeros, not empty: a replayed step attends over the whole cache behind a mask, and a hidden entry must
+        # still hold a finite number
+        self.cache = [(torch.zeros(shape, device=self.device, dtype=self.dtype), torch.zeros(shape, device=self.device, dtype=self.dtype), 0) for _ in layers]
 
         self.low = torch.finfo(self.dtype).min / 4
         self.key_mask = None
@@ -220,6 +225,7 @@ def generate_batch(
     should_stop: Optional[Callable[[], bool]] = None,
     on_token: Optional[Callable[[int], None]] = None,
     min_new_tokens: int = 0,
+    replay: bool = True,
 ) -> list[Generation]:
     """Continue every prompt, all in one pass. Row i is sampled with seeds[i].
 
@@ -228,6 +234,9 @@ def generate_batch(
 
     min_new_tokens: no row may stop before it has written this many tokens. For an answer that was begun for the
     encoder: now and then it finds the beginning complete and would end at once.
+
+    replay: after the request, record one step and replay it for every further token (see replay.py). Where that
+    is not possible the decoder writes token by token, as it does with replay off.
     """
     rows = len(prompts)
     if len(seeds) != rows:
@@ -247,10 +256,10 @@ def generate_batch(
     stops = set(stop_ids)
     active = [True] * rows
 
-    hidden = decoder.feed_rows([[pad_id] * pad + list(prompt) for pad, prompt in zip(pads, prompts)])
+    logits = head(decoder.feed_rows([[pad_id] * pad + list(prompt) for pad, prompt in zip(pads, prompts)]))
+    stepper = Stepper(decoder, head, enabled=replay)
     written = 0
     while True:
-        logits = head(hidden)
         if written < min_new_tokens and stops:
             logits = logits.clone()
             logits[..., sorted(stops)] = float("-inf")
@@ -282,7 +291,10 @@ def generate_batch(
                     results[row].finish = "interrupted"
             break
         sampler.record(feed, active)
-        hidden = decoder.feed_rows([[token] for token in feed])
+        logits = stepper.feed(feed)
+    for result in results:
+        result.replayed = stepper.replayed
+    stepper.release()
     return results
 
 

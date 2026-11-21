@@ -7,8 +7,9 @@ from typing import Callable, Optional
 import torch
 from backend import memory_management
 
+from . import int8kernel
 from .adapters import Adapter, plain
-from .generator import Head, generate_batch
+from .generator import Head, execution_dtype, generate_batch
 from .sampling import SamplingOptions
 
 
@@ -26,6 +27,7 @@ class Written:
     finish: str  # stop | length | interrupted | loop
     tokens: int
     seconds: float  # of the pass this text was written in
+    replayed: bool = False  # the pass ran from a recorded step
 
 
 BEGUN_MINIMUM = 12  # an answer that was begun with the request must add at least this many tokens
@@ -46,6 +48,7 @@ class Writer:
         self.adapter = adapter
         self.head: Optional[Head] = None
         self._mode = None
+        self._kernel: Optional[list] = None  # the layers switched to the int8 kernel; None = not decided yet
 
     def __enter__(self):
         # The whole session runs in inference mode, as Forge's own encode path does. Forge creates a model's
@@ -70,6 +73,9 @@ class Writer:
             mode.__exit__(None, None, None)
 
     def __exit__(self, *_):
+        if self._kernel:
+            int8kernel.switch_off(self._kernel)
+        self._kernel = None
         if self.head is not None:
             self.head.release()
             self.head = None
@@ -86,12 +92,17 @@ class Writer:
         should_stop: Optional[Callable[[], bool]] = None,
         on_progress: Optional[Callable[[int, int, int], None]] = None,
         starts: Optional[list[str]] = None,
+        replay: bool = True,
+        int8_kernel: bool = True,
     ) -> list[Written]:
         """One answer per request, in passes of at most `rows_per_pass` requests. Request i is sampled with seeds[i].
 
         starts: for each request, the first words of its answer. They are put where the encoder's answer begins, so
         that it continues them (word for word, with nothing to obey or to forget); the returned text includes them.
         Not used while the encoder reasons first: its answer then begins with the reasoning.
+
+        replay: write from a recorded step (replay.py). int8_kernel: run an int8 ConvRot encoder's layers through
+        the fused int8 kernel while writing (int8kernel.py); decided at the first request of the session.
 
         on_progress(pass number, passes, tokens written in this pass) is called after every token step.
         After an interrupt the requests of later passes come back empty with finish "interrupted".
@@ -102,6 +113,10 @@ class Writer:
             raise ValueError("one seed per request is needed")
         thinking = options.thinking and adapter.can_think
         rows_per_pass = max(1, int(rows_per_pass))
+        if self._kernel is None:
+            stack = getattr(adapter.transformer, "model", None)
+            wanted = int8_kernel and getattr(stack, "layers", None) is not None
+            self._kernel = int8kernel.switch_on(stack, execution_dtype(next(adapter.transformer.parameters()).device)) if wanted else []
         passes = [range(start, min(start + rows_per_pass, len(users))) for start in range(0, len(users), rows_per_pass)]
         written: list[Written] = []
         stopped = False
@@ -125,11 +140,12 @@ class Writer:
                 should_stop=should_stop,
                 on_token=(lambda count, number=number: on_progress(number, len(passes), count)) if on_progress is not None else None,
                 min_new_tokens=BEGUN_MINIMUM if any(begun) else 0,
+                replay=replay,
             )
             seconds = time.perf_counter() - started
             for result, start in zip(results, begun):
                 raw = start + adapter.decode(result.tokens)
-                written.append(Written(split_reasoning(raw, thinking), raw, result.finish, len(result.tokens), seconds))
+                written.append(Written(split_reasoning(raw, thinking), raw, result.finish, len(result.tokens), seconds, result.replayed))
             stopped = any(result.finish == "interrupted" for result in results)
         return written
 

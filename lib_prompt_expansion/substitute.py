@@ -43,6 +43,8 @@ class Settings:
     rows_per_pass: int = 10
     thinking: bool = False
     begin: bool = False  # the expansion starts with the prompt itself: the encoder's answer is begun with it
+    replay: bool = True  # write from a recorded decoding step (replay.py)
+    int8_kernel: bool = True  # int8 ConvRot encoders write through the fused int8 kernel (int8kernel.py)
 
 
 @dataclass
@@ -235,7 +237,9 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
 
         with writer_factory(adapter) as session:
             begun = {"starts": [parts[index][0] for index in todo]} if settings.begin else {}
-            written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun)
+            # named only when switched off, as `starts` is named only when used: a writer need not know them
+            speed = {name: False for name in ("replay", "int8_kernel") if not getattr(settings, name)}
+            written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
         if state is not None:
             state.textinfo = None
 

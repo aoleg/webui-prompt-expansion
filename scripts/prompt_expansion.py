@@ -16,6 +16,22 @@ from modules.ui_components import InputAccordion, ToolButton
 
 TITLE = "Prompt Expansion"
 
+# Settings > Prompt Expansion. Both are speed-ups that stand down by themselves; the switches are for the day
+# one of them misbehaves on somebody's machine.
+SPEED_OPTIONS = {
+    "prompt_expansion_replay": ("Write from a recorded decoding step", "much faster on a CUDA GPU, with the same numbers; stands down by itself where it cannot be used"),
+    "prompt_expansion_int8_kernel": ("Write through the int8 kernel when the text encoder is an int8 ConvRot file", "faster again; the wording comes out slightly different, the conditioning is not affected"),
+}
+
+
+def register_settings():
+    section = ("prompt_expansion", TITLE)
+    shared.options_templates.update(shared.options_section(section, {name: shared.OptionInfo(True, label).info(info) for name, (label, info) in SPEED_OPTIONS.items()}))
+
+
+if getattr(shared, "options_templates", None) is not None:
+    register_settings()
+
 
 def status_line() -> str:
     """Whether the loaded checkpoint's text encoder can write. Never loads a model."""
@@ -177,6 +193,8 @@ class PromptExpansionScript(scripts.Script):
             rows_per_pass=int(rows),
             thinking=bool(thinking),
             begin=bool(begin),
+            replay=bool(getattr(shared.opts, "prompt_expansion_replay", True)),
+            int8_kernel=bool(getattr(shared.opts, "prompt_expansion_int8_kernel", True)),
         )
 
         later = self.scripts_after_me(p)

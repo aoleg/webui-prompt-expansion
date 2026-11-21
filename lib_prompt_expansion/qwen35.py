@@ -44,7 +44,8 @@ class Qwen35Decoder:
                 self.state.append([torch.zeros((rows, conv_dim, window), device=self.device, dtype=self.dtype), None])
             else:
                 shape = (rows, self.config.num_key_value_heads, capacity, self.config.head_dim)
-                self.state.append([torch.empty(shape, device=self.device, dtype=self.dtype), torch.empty(shape, device=self.device, dtype=self.dtype)])
+                # zeros, not empty: see generator.Decoder
+                self.state.append([torch.zeros(shape, device=self.device, dtype=self.dtype), torch.zeros(shape, device=self.device, dtype=self.dtype)])
 
         self.key_mask = None
         self.pads = None
@@ -56,7 +57,9 @@ class Qwen35Decoder:
             for row, pad in enumerate(pads):
                 self.key_mask[row, :, :, :pad] = self.low
 
-    def _attention(self, attn, state, x, mask, freqs_cis, past):
+    def _attention(self, attn, state, x, mask, freqs_cis, past, slot=None):
+        """slot: for a replayed step, a one-element index tensor that holds the position. The key and value are
+        then written through it and the whole cache is attended (the mask hides what is not written yet)."""
         rows, count, _ = x.shape
         gated = attn.q_proj(x).view(rows, count, attn.num_heads, attn.head_dim * 2)
         query, gate = gated[..., : attn.head_dim], gated[..., attn.head_dim :]
@@ -67,10 +70,15 @@ class Qwen35Decoder:
         query, key = forge_llama.apply_partial_rope(query, key, freqs_cis, attn.rotary_dim)
 
         keys, values = state
-        keys[:, :, past : past + count] = key
-        values[:, :, past : past + count] = value
         extra = {"enable_gqa": True} if attn.num_heads != attn.num_kv_heads else {}
-        out = forge_llama.attention_function(query, keys[:, :, : past + count], values[:, :, : past + count], attn.num_heads, mask=mask, skip_reshape=True, **extra)
+        if slot is not None:
+            keys.index_copy_(2, slot, key.to(keys.dtype))
+            values.index_copy_(2, slot, value.to(values.dtype))
+            out = forge_llama.attention_function(query, keys, values, attn.num_heads, mask=mask, skip_reshape=True, **extra)
+        else:
+            keys[:, :, past : past + count] = key
+            values[:, :, past : past + count] = value
+            out = forge_llama.attention_function(query, keys[:, :, : past + count], values[:, :, : past + count], attn.num_heads, mask=mask, skip_reshape=True, **extra)
         return attn.o_proj(out * gate.sigmoid())
 
     def _linear(self, net, state, x, real):

@@ -15,7 +15,8 @@ of a word); "# replace in answer: each child wears => each boy wears" changes th
 
 "{random:47-19 ЛДА}" is replaced by a new value of the sample's form for every request (each digit by a random digit,
 each Cyrillic or Latin capital by a random capital of the same alphabet, the rest kept), and "{number:2-99}" by a
-number in that range. A small encoder copies such samples, so the plates and route numbers it writes then differ from
+number in that range. "# set: tie = a red pioneer tie," gives "{tie}" that value in every line and addition, where the
+blocks around it hold for the request; where they do not, "{tie}" is left out. A small encoder copies such samples, so the plates and route numbers it writes then differ from
 picture to picture; they come from the expansion seed, so a fixed seed gives the same text again. "{pick:ЦЕНТР|ВОКЗАЛ}"
 is replaced by one of its choices, also by the expansion seed; it is a word, not a number, so it stays when the request
 brings a number of its own.
@@ -42,7 +43,8 @@ _END = re.compile(r"^#\s*end\s*$", re.I)
 _ADD = re.compile(r"^#\s*add\s+if\s+missing\s*:\s*(.*?)\s*$", re.I)
 _IN_REQUEST = re.compile(r"^#\s*replace\s+in\s+request\s*:\s*(.+?)\s*=>\s*(.*?)\s*$", re.I)
 _IN_ANSWER = re.compile(r"^#\s*replace\s+in\s+answer\s*:\s*(.+?)\s*=>\s*(.*?)\s*$", re.I)
-_CONDITION = re.compile(r"^#\s*(?:if\s*:.*|add\s+if\s+missing\s*:.*|replace\s+in\s+(?:request|answer)\s*:.*|else|end)\s*$", re.I)
+_SET = re.compile(r"^#\s*set\s*:\s*(\w+)\s*=\s*(.*?)\s*$", re.I)
+_CONDITION = re.compile(r"^#\s*(?:if\s*:.*|add\s+if\s+missing\s*:.*|replace\s+in\s+(?:request|answer)\s*:.*|set\s*:.*|else|end)\s*$", re.I)
 
 
 @dataclass(frozen=True)
@@ -152,11 +154,24 @@ class Plan:
     answer_rules: tuple = ()  # (pattern, replacement): the encoder's text after the clean-up
 
 
+def _put_values(line: str, declared: set, values: dict) -> str:
+    """A line with the "# set:" values in place of their {name}; a name this request does not reach becomes empty,
+    and the run of spaces it leaves is closed."""
+    changed = line
+    for name in declared:
+        changed = changed.replace("{" + name + "}", values.get(name, ""))
+    if changed == line:
+        return line
+    return re.sub(r" {2,}", " ", changed).replace(" ,", ",")
+
+
 def _walk(text: str, request: str) -> Plan:
     kept: list[str] = []
     found: list[list] = []  # [terms, lines, replacements]
     request_rules: list[tuple] = []
     answer_rules: list[tuple] = []
+    values: dict = {}  # "# set: name = value" lines this request reaches
+    declared = {match.group(1) for match in (_SET.match(line.strip()) for line in text.splitlines()) if match}
     # (the lines of the enclosing level are kept, the condition held, the addition this level writes to or None)
     stack: list[tuple[bool, bool, Optional[int]]] = []
     keeping, target = True, None
@@ -164,6 +179,7 @@ def _walk(text: str, request: str) -> Plan:
         stripped = line.strip()
         condition, missing = _IF.match(stripped), _ADD.match(stripped)
         in_request, in_answer = _IN_REQUEST.match(stripped), _IN_ANSWER.match(stripped)
+        setting = _SET.match(stripped)
         if condition:
             held = matches(condition.group(1), request)
             stack.append((keeping, held, target))
@@ -182,6 +198,9 @@ def _walk(text: str, request: str) -> Plan:
         elif _END.match(stripped):
             if stack:
                 keeping, _, target = stack.pop()
+        elif setting:
+            if keeping:
+                values[setting.group(1)] = setting.group(2)
         elif in_request:
             if keeping:
                 request_rules.append((in_request.group(1), in_request.group(2)))
@@ -192,6 +211,9 @@ def _walk(text: str, request: str) -> Plan:
             found[target][1].append(stripped)
         elif keeping:
             kept.append(line)
+    if declared:
+        kept = [_put_values(line, declared, values) for line in kept]
+        found = [[terms, [_put_values(line, declared, values) for line in lines], rules] for terms, lines, rules in found]
     joined = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
     extra = tuple(Addition(terms, " ".join(part for part in lines if part), tuple(rules)) for terms, lines, rules in found if any(lines) or rules)
     return Plan(joined, extra, tuple(request_rules), tuple(answer_rules))

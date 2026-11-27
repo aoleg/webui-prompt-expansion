@@ -18,80 +18,88 @@ When the request names a city, write "in [city], Soviet Union" in place of "in t
 # if: octobrist*, октябр*
 Octobrists are 7 to 9 years old.
 # end
-# if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*
-# else
-# if: boy*, schoolboy*, мальчик*, школьник
-# else
+# if: !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
 A group of schoolchildren is girls and boys together.
 # end
-# end
+# if: !octobrist*, !first-grader*, !first grader*, !pervoklass*, !октябр*, !первоклас*, !tie, !ties, !scarf, !scarves, !галстук*
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-# if: !octobrist*, !first-grader*, !first grader*, !pervoklass*, !октябр*, !первоклас*
 Pioneers wear a pioneer tie.
-# end
-# if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-Schoolgirls wear a dark dress with a white collar and cuffs, a white apron and white hair bows.
 # else
-Schoolgirls wear a dark dress with a white collar and cuffs, a black apron and white hair bows.
-# end
-# end
-# else
-# if: !octobrist*, !first-grader*, !first grader*, !pervoklass*, !октябр*, !первоклас*
 Pioneers wear a red pioneer tie.
 # end
+# end
 # if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
+# if: !dress, !dresses, !плать*
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+Schoolgirls wear a dark dress with a white collar and cuffs and white hair bows.
+# else
+Schoolgirls wear a dark brown dress with a white collar and cuffs and white hair bows.
+# end
+# else
+Schoolgirls wear white hair bows.
+# end
+# if: !apron*, !pinafore*, !фартук*, !передник*
 # if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-Schoolgirls wear a dark brown dress with a white collar and cuffs, a white apron and white hair bows.
+Girls' aprons are white.
 # replace in answer: black apron* => white apron*
 # replace in answer: black pinafore* => white pinafore*
 # else
-Schoolgirls wear a dark brown dress with a white collar and cuffs, a black apron and white hair bows.
+Girls' aprons are black.
 # end
 # end
+# end
+# if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
+Schoolboys wear a grey tunic with a stand-up collar, a belt with a buckle and a peaked cap.
+# end
+# else
+# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Schoolboys wear a grey wool suit.
+# else
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+Schoolboys wear a plain dark suit.
+# else
+Schoolboys wear a plain dark navy suit.
+# end
+# end
+# end
+# if: !shirt*, !рубаш*, !сорочк*
+# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
+Boys' shirts are white.
+# replace in answer: light blue shirt* => white shirt*
+# replace in answer: light shirt* => white shirt*
+# else
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+Boys' shirts are light grey.
+# else
+Boys' shirts are light blue.
+# end
+# end
+# end
+# end
+# end
+# if: !black and white, !black-and-white, !b&w, !b/w, !bw, !monochrome, !monochromatic, !sepia, !grayscale, !greyscale, !чёрно-бел*, !черно-бел*, !ч/б, !монохром*
+# if: !dress, !dresses, !плать*
 # replace in answer: dark navy blue dress* => brown dress*
 # replace in answer: navy blue dress* => brown dress*
 # replace in answer: dark navy dress* => brown dress*
 # replace in answer: navy dress* => brown dress*
 # replace in answer: dark brown dress* => brown dress*
 # replace in answer: brown dress* => dark brown dress*
+# end
+# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
 # replace in answer: dark navy blue suit* => navy suit*
 # replace in answer: navy blue suit* => navy suit*
 # replace in answer: dark blue suit* => navy suit*
 # replace in answer: dark navy suit* => navy suit*
 # replace in answer: navy suit* => dark navy suit*
 # end
-# if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
-# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
-Schoolboys wear a grey tunic with a stand-up collar, a belt with a buckle and a peaked cap.
-# else
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Schoolboys wear a grey wool suit with a white shirt.
-# else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Schoolboys wear a plain dark suit with a white shirt.
-# else
-Schoolboys wear a plain dark navy suit with a white shirt.
-# end
-# end
-# replace in answer: light blue shirt* => white shirt*
-# replace in answer: light shirt* => white shirt*
-# else
-# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Schoolboys wear a grey wool suit with a light shirt.
-# else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Schoolboys wear a plain dark suit with a light shirt.
-# else
-Schoolboys wear a plain dark navy suit with a light blue shirt.
-# end
-# end
-# end
-# end
 # end
 
 # if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
+# if: !dress, !dresses, !плать*, !apron*, !pinafore*, !фартук*, !передник*
 # add if missing: dress, dresses, apron, aprons, pinafore*
 # replace in answer: each child wears => each boy wears
 # replace in answer: every child wears => every boy wears
@@ -112,7 +120,9 @@ a black apron, white hair bows.
 # end
 # end
 # end
+# end
 # if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
+# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
 # add if missing: suit, suits, tunic, tunics, jacket, jackets, blazer*
 # replace in answer: each child wears => each girl wears
 # replace in answer: every child wears => every girl wears
@@ -123,6 +133,17 @@ a black apron, white hair bows.
 # replace in answer: *children dressed in => *girls dressed in
 # if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
 Boys' school uniform: a grey tunic with a stand-up collar, a belt with a buckle, a peaked cap.
+# else
+# if: shirt*, рубаш*, сорочк*
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Boys' school uniform: a grey wool suit.
+# else
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+Boys' school uniform: a plain dark suit.
+# else
+Boys' school uniform: a plain dark navy suit.
+# end
+# end
 # else
 # if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
 # if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
@@ -139,9 +160,11 @@ Boys' school uniform: a plain dark navy suit with a white shirt.
 Boys' school uniform: a grey wool suit with a light shirt.
 # else
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Boys' school uniform: a plain dark suit with a light shirt.
+Boys' school uniform: a plain dark suit with a light grey shirt.
 # else
 Boys' school uniform: a plain dark navy suit with a light blue shirt.
+# end
+# end
 # end
 # end
 # end

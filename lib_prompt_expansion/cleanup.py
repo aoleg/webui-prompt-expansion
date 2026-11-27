@@ -363,6 +363,80 @@ def drop_unseen(text: str, source: str = "") -> tuple[str, int]:
     return " ".join(out), changed
 
 
+# ... and an instruction that forbids saying what is absent, or interpretations, gets its asides taken out: a small
+# encoder pads a sparse scene with "No people are visible in the frame." and ", indicating sunlight from the right".
+LEAVES_OUT_ABSENCE = ("never says that something is absent", "never says what is missing")
+LEAVES_OUT_INFERENCES = ("never vague statements, interpretations", "never interpretations")
+# a sentence that opens by saying something is not there ("No people are visible", "There are no other vehicles")
+_NONE_SENTENCE = re.compile(
+    r"^(?:there (?:is|are) )?no\s+(?![.\d])|^[^,;\"]{0,60}\b(?:is|are) not (?:visible|present|shown)\b"
+    # "Above the windshield, no text is visible."
+    r"|^[^;\"]{0,60},\s*no \w+(?: \w+)? (?:is|are|appears?) (?:visible|present|shown)\b",
+    re.I,
+)
+# a clause that does: ", with no other cars or pedestrians in the frame", "without any other vehicles present"
+_NONE_CLAUSE = re.compile(
+    r",?\s*\b(?:with no other|with no visible|with no additional|without any other|without other|without any additional|without additional|while no other|and no other|no other)\b[^.;\"“”]*(?=[.;]|$)"
+    # ", and no people are visible inside", "without any motion blur or vehicles present in the frame"
+    r"|,?\s*\b(?:and|while|but|where) no \w+(?: \w+)? (?:is|are) (?:visible|present|seen)\b[^.;\"“”]*(?=[.;]|$)"
+    r"|,?\s*\bwithout any\b[^.;\"“”]*\b(?:present|visible|in (?:the|this) (?:frame|scene|view|image))\b[^.;\"“”]*(?=[.;]|$)",
+    re.I,
+)
+# a sentence about the description itself: "The image shows only visible elements without interpretation."
+_META_SENTENCE = re.compile(
+    r"\bwithout (?:any )?(?:additional |further |emotional )?(?:context|interpretations?|commentary|emotions?)\b|\bvisible elements\b|\bfocus(?:es|ed)? (?:strictly|solely|entirely)\b"
+    # "The overall lighting suggests daytime without direct sunlight."
+    r"|^the (?:overall )?(?:lighting|light|shadows?|scene|image|atmosphere|weather)\b[^\"]{0,40}\b(?:suggests?|indicates?|implies)\b",
+    re.I,
+)
+# an inference: ", indicating sunlight from the right", ", suggesting an overcast sky", "coats typical of the era"
+_INFERENCE_CLAUSE = re.compile(
+    r",\s*(?:indicating|suggesting|signifying|implying)\b[^.;\"“”]*(?=[.;]|$)"
+    # without a comma only before the light it infers: "Shadows fall beneath the cars indicating sunlight from above."
+    r"|\s+(?:indicating|suggesting)\s+(?:an? |the )?(?:sunny|overcast|cloudy|strong|bright|soft|diffuse\w*|midday|overhead|sunlight|sun|light|daylight|high|low|direct|clear)\b[^.;\"“”]*(?=[.;]|$)",
+    re.I,
+)
+# "typical of a school auditorium", "characteristic of the era": the rest of the clause goes with it
+# (without a comma only a short phrase that ends the clause: "Curtains typical of a school hang behind" keeps its verb)
+_TYPICAL = re.compile(r",\s*(?:typical|characteristic) (?:of|for)\b[^,.;\"“”]*|\s+(?:typical|characteristic) (?:of|for)(?:\s+[\w'-]+){1,6}(?=\s*[,.;])", re.I)
+
+
+def drop_asides(text: str, source: str = "", absence: bool = True, inferences: bool = True) -> tuple[str, int]:
+    """Take out what an instruction forbade and a small encoder says anyway: that something is absent (absence), and
+    inferences and remarks about the description itself (inferences). The first sentence (the request) stays, and so
+    does anything whose loss would cost a word of the request. Returns the text and how many places were changed."""
+    sentences = split_sentences(text)
+    kept_before = keeps_request(text, source) if source else True
+    out, changed = sentences[:1], 0
+    for sentence in sentences[1:]:
+        new = sentence
+        if absence and _NONE_SENTENCE.match(new) and not _QUOTED.search(new):
+            new = ""
+        if new and inferences and _META_SENTENCE.search(new) and not _QUOTED.search(new):
+            new = ""
+        if new and absence:
+            new = _NONE_CLAUSE.sub("", new)
+        if new and inferences:
+            new = _TYPICAL.sub("", _INFERENCE_CLAUSE.sub("", new))
+        if new != sentence and new:
+            new = new.rstrip(" ,;:")
+            if not re.search(SENTENCE_END + r"$", new):
+                new += "."
+            if len(new.split()) < 3:
+                new = ""
+        if new == sentence:
+            out.append(sentence)
+            continue
+        candidate = " ".join(out + ([new] if new else []))
+        if kept_before and source and not keeps_request(candidate + " " + " ".join(sentences[len(out) + 1 :]), source):
+            out.append(sentence)
+            continue
+        if new:
+            out.append(new)
+        changed += 1
+    return " ".join(out), changed
+
+
 # ... and a black-and-white picture gets no colour words: a "red pioneer tie" in a black-and-white prompt makes the image
 # model draw a grey picture with one red tie in it.
 LEAVES_OUT_COLOURS = ("no colour words at all", "no color words at all")
@@ -441,6 +515,11 @@ def prepare(answer: str, finish: str = "stop", source: str = "", instruction: st
         if changed and shorter.strip():
             text = shorter
             notes.append("sounds or smells removed")
+    absence, inferences = any(m in told for m in LEAVES_OUT_ABSENCE), any(m in told for m in LEAVES_OUT_INFERENCES)
+    if absence or inferences:
+        text, changed = drop_asides(text, source, absence, inferences)
+        if changed:
+            notes.append("absence statements or inferences removed")
     if any(marker in told for marker in LEAVES_OUT_COLOURS):
         text, changed = drop_colours(text, source)
         if changed:

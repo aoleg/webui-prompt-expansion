@@ -16,7 +16,9 @@ of a word); "# replace in answer: each child wears => each boy wears" changes th
 "{random:47-19 ЛДА}" is replaced by a new value of the sample's form for every request (each digit by a random digit,
 each Cyrillic or Latin capital by a random capital of the same alphabet, the rest kept), and "{number:2-99}" by a
 number in that range. A small encoder copies such samples, so the plates and route numbers it writes then differ from
-picture to picture; they come from the expansion seed, so a fixed seed gives the same text again.
+picture to picture; they come from the expansion seed, so a fixed seed gives the same text again. "{pick:ЦЕНТР|ВОКЗАЛ}"
+is replaced by one of its choices, also by the expansion seed; it is a word, not a number, so it stays when the request
+brings a number of its own.
 """
 
 import math
@@ -274,6 +276,7 @@ def finish(text: str, request: str, expanded: str) -> tuple[str, list]:
 
 _RANDOM = re.compile(r"\{random:([^{}]+)\}")
 _NUMBER = re.compile(r"\{number:\s*(\d+)\s*-\s*(\d+)\s*\}")
+_PICK = re.compile(r"\{pick:([^{}]+)\}")
 # letters of the plates and signs a sample stands for: no Ё, Й, Ъ, Ы, Ь (never on a plate); Latin without I, O, Q
 _CYRILLIC = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЭЮЯ"
 _LATIN = "ABCDEFGHJKLMNPRSTUVWXYZ"
@@ -334,6 +337,8 @@ def fill(text: str, words: int, seed: int = 0, request: str = "") -> str:
     A request that gives a number of its own (a route, a plate) gets no samples: the sentences that carry them are left
     out, so that the encoder keeps the request's number instead of one drawn here."""
     text = text.replace("{words}", str(words if words > 0 else FALLBACK_WORDS))
+    picks = random.Random(f"pick {seed}")  # apart from the numbers, so adding a choice changes no plate or route
+    text = _PICK.sub(lambda m: picks.choice([part.strip() for part in m.group(1).split("|")]), text)
     if not has_random(text):
         return text
     if own_numbers(request):

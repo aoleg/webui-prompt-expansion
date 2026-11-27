@@ -199,7 +199,9 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
     sampling = settings.sampling
     sampled = sampling.do_sample and sampling.temperature > 0.0
     thinking = settings.thinking and adapter.can_think
-    system = preset_files.fill(settings.instruction.strip(), settings.words)
+    instruction = settings.instruction.strip()
+    # "# if:" blocks and "{random:...}" samples give each request an instruction of its own
+    conditional = preset_files.has_conditions(instruction) or preset_files.has_random(instruction)
     options = WriteOptions(max_new_tokens=preset_files.token_budget(settings.words, settings.max_new_tokens, thinking), thinking=thinking, sampling=sampling)
 
     start_seed = int(settings.seed) if settings.seed is not None and int(settings.seed) >= 0 else secrets.randbelow(2**32)
@@ -213,8 +215,12 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
     marks = [prompt_weights.strip(text) if weights else prompt_weights.Stripped(text) for text, _tags in tagged]
     parts = [(mark.plain, tags) for mark, (_text, tags) in zip(marks, tagged)]
     seeds = [start_seed + index for index in range(len(originals))]
+    # the random samples follow the request's seed; with sampling off a request always gets the same text, so one fixed draw
+    systems = [preset_files.fill(preset_files.select(instruction, text) if conditional else instruction, settings.words, seed if sampled else 0, request=text) for (text, _tags), seed in zip(parts, seeds)]
+    # the request as the encoder gets it: the preset's "# replace in request:" rules (conditions look at the request as typed)
+    asked = [preset_files.rewrite_request(instruction, text) if conditional and text else text for text, _tags in parts]
     keys: list[Optional[tuple]] = []
-    for (text, _tags), seed in zip(parts, seeds):
+    for (text, _tags), seed, system in zip(parts, seeds, systems):
         keys.append((id(adapter.transformer), adapter.label, system, text, options.max_new_tokens, thinking, bool(settings.begin), sampling.key(), seed if sampled else None) if text else None)
 
     answers: dict[tuple, Optional[str]] = {}
@@ -240,11 +246,11 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
                 state.textinfo = f"Prompt expansion: pass {number} of {passes}, {count} tokens"
 
         with writer_factory(adapter) as session:
-            begun = {"starts": [parts[index][0] for index in todo]} if settings.begin else {}
+            begun = {"starts": [asked[index] for index in todo]} if settings.begin else {}
             # named only when switched off, as `starts` is named only when used: a writer need not know them
             speed = {name: False for name in ("replay", "int8_kernel") if not getattr(settings, name)}
             started = time.perf_counter()
-            written = session.write_many(system, [parts[index][0] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
+            written = session.write_many([systems[index] for index in todo] if conditional else systems[todo[0]], [asked[index] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
             report.writing = time.perf_counter() - started
         if state is not None:
             state.textinfo = None
@@ -258,9 +264,15 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
                 report.notes.append(f"written token by token: {reason}")
 
         for index, result in zip(todo, written):
-            cleaned = cleanup.prepare(result.text, result.finish, source=parts[index][0], instruction=system, words=settings.words, comments_follow=comments_follow, begins=settings.begin)
+            cleaned = cleanup.prepare(result.text, result.finish, source=asked[index], instruction=systems[index], words=settings.words, comments_follow=comments_follow, begins=settings.begin)
             report.notes += cleaned.notes
             text = cleaned.text or None
+            if text and conditional:
+                # the preset's own work on the answer: "# replace in answer:" rules, and what must be in the text
+                # ("# add if missing:") but was left out
+                text, used = preset_files.finish(instruction, parts[index][0], text)
+                if used:
+                    report.notes.append("a missing description was added")
             answers[keys[index]] = text
             if result.finish != "interrupted":
                 _remember(keys[index], text)

@@ -2,7 +2,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence, Union
 
 import torch
 from backend import memory_management
@@ -84,7 +84,7 @@ class Writer:
 
     def write_many(
         self,
-        system: str,
+        system: Union[str, Sequence[str]],
         users: list[str],
         options: WriteOptions = WriteOptions(),
         seeds: Optional[list[int]] = None,
@@ -96,6 +96,8 @@ class Writer:
         int8_kernel: bool = True,
     ) -> list[Written]:
         """One answer per request, in passes of at most `rows_per_pass` requests. Request i is sampled with seeds[i].
+
+        system: one instruction for all requests, or one per request.
 
         starts: for each request, the first words of its answer. They are put where the encoder's answer begins, so
         that it continues them (word for word, with nothing to obey or to forget); the returned text includes them.
@@ -111,6 +113,9 @@ class Writer:
         seeds = list(seeds) if seeds is not None else list(range(len(users)))
         if len(seeds) != len(users):
             raise ValueError("one seed per request is needed")
+        systems = [system] * len(users) if isinstance(system, str) else list(system)
+        if len(systems) != len(users):
+            raise ValueError("one instruction, or one per request, is needed")
         thinking = options.thinking and adapter.can_think
         rows_per_pass = max(1, int(rows_per_pass))
         if self._kernel is None:
@@ -126,7 +131,7 @@ class Writer:
                 written += [Written("", "", "interrupted", 0, 0.0) for _ in rows]
                 continue
             begun = ["" if thinking or starts is None else plain(starts[row]) for row in rows]
-            prompts = [adapter.encode(adapter.prompt(system, users[row], thinking) + start) for row, start in zip(rows, begun)]
+            prompts = [adapter.encode(adapter.prompt(systems[row], users[row], thinking) + start) for row, start in zip(rows, begun)]
             started = time.perf_counter()
             results = generate_batch(
                 adapter.transformer,

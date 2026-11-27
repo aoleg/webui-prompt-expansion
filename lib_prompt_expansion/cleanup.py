@@ -361,6 +361,65 @@ def drop_unseen(text: str, source: str = "") -> tuple[str, int]:
             out.append(replacement)
         changed += 1
     return " ".join(out), changed
+
+
+# ... and a black-and-white picture gets no colour words: a "red pioneer tie" in a black-and-white prompt makes the image
+# model draw a grey picture with one red tie in it.
+LEAVES_OUT_COLOURS = ("no colour words at all", "no color words at all")
+# white, black, grey, dark and light are tones; gold and silver are materials
+_HUE = (
+    r"(?:red|reddish|blue|bluish|green|greenish|brown|brownish|yellow|yellowish|orange|pink|pinkish|purple|navy|beige|golden|crimson|scarlet|"
+    r"turquoise|violet|maroon|khaki|teal|amber|ochre|burgundy|lilac|magenta|cyan|emerald|azure)"
+)
+_TONE = r"(?:white|black|grey|gray|dark|light|pale|deep|bright)"
+# one colour word, or a compound of colour words ("navy-blue", "red-and-white", "blue-grey"), in front of the word it describes
+_HUED = re.compile(
+    rf"(?<![\w-])(?P<words>(?:{_HUE}|{_TONE})(?:(?:-and-|-| and )(?:{_HUE}|{_TONE}))*)(?:-(?:coloured|colored|toned|tinted))?(?P<gap>[ -])(?=(?P<next>[a-z]+))",
+    re.I,
+)
+_HUE_WORD = re.compile(rf"\b{_HUE}\b", re.I)
+_NOT_A_NOUN = {"and", "or", "with", "in", "on", "at", "against", "of", "to", "from", "as", "under", "over", "near", "by", "behind", "than", "but", "while"}
+_PREDICATE = re.compile(r"\b(?:is|are|was|were|be|been|painted|coloured|colored|turns|turned|looks|appears|stays|remains)\s+$", re.I)
+
+
+def drop_colours(text: str, source: str = "") -> tuple[str, int]:
+    """Take colour words out of a text that must have none: "a red pioneer tie" becomes "a pioneer tie". Only a colour
+    word in front of the word it describes goes; quoted lettering and colour words of the request are left alone."""
+    asked = {word.lower() for word in _HUE_WORD.findall(source)}
+    changed = 0
+
+    def one(piece: str) -> str:
+        nonlocal changed
+        out, last = [], 0
+        for match in _HUED.finditer(piece):
+            hues = [word.lower() for word in _HUE_WORD.findall(match.group("words"))]
+            if not hues or any(hue in asked for hue in hues) or match.group("next").lower() in _NOT_A_NOUN or _PREDICATE.search(piece[: match.start()]):
+                continue
+            before = piece[last : match.start()]
+            # the tones stay: "a dark red tie" -> "a dark tie", "blue-grey coat" -> "grey coat"
+            tones = [word for word in re.split(r"-and-|-| and ", match.group("words")) if re.fullmatch(_TONE, word, re.I)]
+            kept = "-".join(tones) + " " if tones else ""
+            # "an orange scarf" -> "a scarf", "a red apron" -> "an apron"
+            article = re.search(r"\b(an?) $", before, re.I)
+            if article:
+                wanted = "an" if (kept or match.group("next"))[:1].lower() in "aeiou" else "a"
+                wanted = wanted.capitalize() if article.group(1)[0].isupper() else wanted
+                before = before[: article.start(1)] + wanted + " "
+            out.append(before + kept)
+            last = match.end()
+            changed += 1
+        out.append(piece[last:])
+        return "".join(out)
+
+    parts, last = [], 0
+    for quoted in _QUOTED.finditer(text):
+        parts.append(one(text[last : quoted.start()]))
+        parts.append(quoted.group(0))
+        last = quoted.end()
+    parts.append(one(text[last:]))
+    return "".join(parts), changed
+
+
 OVERLONG = 1.5  # a text longer than this many times the length asked for is cut back to it
 
 
@@ -382,6 +441,10 @@ def prepare(answer: str, finish: str = "stop", source: str = "", instruction: st
         if changed and shorter.strip():
             text = shorter
             notes.append("sounds or smells removed")
+    if any(marker in told for marker in LEAVES_OUT_COLOURS):
+        text, changed = drop_colours(text, source)
+        if changed:
+            notes.append("colour words removed (black-and-white)")
     if (begins or any(marker in told for marker in LEADS_WITH_REQUEST)) and not keeps_request(text, source):
         text = lead_with_request(text, source)
         notes.append("the request was put in front (the encoder had not kept it)")

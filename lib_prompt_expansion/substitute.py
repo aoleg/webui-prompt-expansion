@@ -16,7 +16,7 @@ from . import cleanup
 from . import fetch as head_fetch
 from . import presets as preset_files
 from . import weights as prompt_weights
-from .adapters import find_adapter
+from .adapters import choose
 from .generator import UnsupportedEncoder
 from .sampling import SamplingOptions
 from .writer import WriteOptions, Writer
@@ -45,6 +45,7 @@ class Settings:
     begin: bool = False  # the expansion starts with the prompt itself: the encoder's answer is begun with it
     replay: bool = True  # write from a recorded decoding step (replay.py)
     int8_kernel: bool = True  # int8 ConvRot encoders write through the fused int8 kernel (int8kernel.py)
+    writer_file: str = ""  # a model file of its own to write with (adapters.file_adapter); empty: the checkpoint's text encoder
 
 
 @dataclass
@@ -162,7 +163,7 @@ def expand(
         _expand(p, settings, state, adapter, comments_follow, writer_factory, report, weights)
     except UnsupportedEncoder as reason:
         report.writer = ""
-        report.notes = [f"not available for this checkpoint: {reason}"]
+        report.notes = [f"not available{'' if settings.writer_file else ' for this checkpoint'}: {reason}"]
     except Exception as problem:  # noqa: BLE001 - an expansion must never stop a generation
         log.exception("Prompt expansion failed; the prompts are used as typed.")
         report.notes.append(f"failed: {type(problem).__name__}: {problem}")
@@ -191,7 +192,7 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
             finally:
                 announce(None)
 
-        adapter = find_adapter(p.sd_model, fetch=fetch)
+        adapter = choose(getattr(p, "sd_model", None), settings.writer_file or None, fetch=fetch)
     report.writer = adapter.label
     if getattr(adapter, "head_borrowed", False):
         report.notes.append("output head from " + os.path.basename(adapter.head_file))

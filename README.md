@@ -4,6 +4,8 @@ Newer image models work best with long, concrete prompts: every shop with a name
 
 Models such as Z-Image, Krea 2, FLUX.2 Klein, Qwen-Image 2.1 and MOSS-Image use a 4B to 9B chat LLM as their text encoder. Forge Neo only ever asks that LLM to read. This extension also asks it to write: at Generate, the encoder expands each prompt, and the expanded text is what gets encoded. There is no second model to download and nothing extra to keep in memory between runs.
 
+For a checkpoint whose text encoder cannot write, or when you prefer another writer, a Molmo2-8B file from your text encoder folders can do the writing instead, as [a writer of its own](#a-writer-of-its-own-molmo2-8b).
+
 ```
 a bus stop on a rainy street at night
 ```
@@ -116,9 +118,21 @@ Licences: the Qwen3-VL-4B parts are under the Apache License 2.0. The text conne
 
 **MiniMax-H3-Image with its own 32B encoder** cannot be supported: that encoder is cut off after 50 of its 64 layers and has no output side at all.
 
-Flux.1, Chroma, Wan, SD 1.5 and SDXL cannot be supported either: T5 and CLIP are encoders only and cannot write text. With such a checkpoint the extension does nothing and says so in its panel.
+Flux.1, Chroma, Wan, SD 1.5 and SDXL cannot be supported either: T5 and CLIP are encoders only and cannot write text. With such a checkpoint the extension does nothing and says so in its panel, unless a writer of its own is chosen (next section).
 
 Quantised encoder files work: scaled fp8, fp8 mixed and int8 files were tested. GGUF files were not.
+
+### A writer of its own: Molmo2-8B
+
+The writer need not be the checkpoint's text encoder. [Molmo2-8B](https://huggingface.co/allenai/Molmo2-8B) (Allen Institute for AI, Apache 2.0) is a vision-language model whose language half is Qwen3-8B, trained on for dense captions of pictures. The extension runs that half on Forge Neo's own Qwen3-8B, as a model of its own that is loaded for the writing. It then works with every checkpoint, Flux.1, Chroma, Wan, SD 1.5 and SDXL included.
+
+- **The file.** Put a complete Molmo2-8B `.safetensors` file into a text encoder folder, press the refresh button of the VAE / Text Encoder list or of this panel, and choose it under **Writer**. Tested with `molmo2_8b_int8_convrot.safetensors` of [Alissonerdx/Molmo2-8B-Minimax-H3](https://huggingface.co/Alissonerdx/Molmo2-8B-Minimax-H3) (INT8 ConvRot, all 36 layers, 9.3 GB). The file is recognised by its tensors, whatever its name. A file with plain bf16 or fp16 weights in allenai's layout is read the same way; none was at hand to test.
+- **Only a complete file can write**: all 36 layers, the final norm and the output head. A copy that is cut down for use as the text encoder of MiniMax-H3-Image (25 layers, 7.2 GB) is not offered as a writer, and the panel says so: text written without the last layers is a loop of garbage.
+- **Memory.** The model takes 9.4 GB of VRAM, and about 2.2 GB more while ten prompts are written. It is under Forge's memory management like a text encoder: it stays on the GPU while there is room, gives way when the image model needs the memory, and comes back for the next job. The file is read at the first job (a few seconds) and kept until you choose another writer.
+- **Text only.** Molmo2's vision tower is not loaded; reference images are not shown to it.
+- **MiniMax-H3-Image with Molmo2-8B as its text encoder** (through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo)): the encoder as loaded holds only the layers the image model reads and cannot write. If the file it was loaded from is complete, the extension uses that file as the writer by itself, loaded once more in full; the panel says so. With a cut-down file, choose a complete one under **Writer**.
+
+The INT8 ConvRot layers are used as they are stored (they have the numbers of comfy-kitchen's INT8 ConvRot, which Forge runs), and both speed-ups below apply.
 
 ## Install
 
@@ -136,6 +150,7 @@ There are no extra Python packages.
 
 Open the **Prompt Expansion** panel in txt2img or img2img, tick **Enable**, and generate as usual.
 
+- **Writer**: what writes the expansion. *This checkpoint's text encoder* is the default; a Molmo2-8B file in your text encoder folders is listed below it (see [A writer of its own](#a-writer-of-its-own-molmo2-8b)). The panel opens with the writer you chose last time, and the line above the list says whether it can write.
 - **Preset**: a ready-made instruction for the encoder. Choosing one fills the box below. The panel opens with the preset you chose last time.
 - **Expansion prompt**: the instruction itself. Edit it freely; what is in the box is what is sent. Your own prompt follows it as the request. `{words}` is replaced by the length. An edit lasts until the page is loaded again: the text is not saved, and the panel then shows the preset's own text. To keep an edited instruction, save it as a preset of your own (see Presets below).
 - **Start with my prompt**: the expansion begins with your prompt, word for word, and continues it. Each preset sets this; it is off for the presets that rewrite or translate.
@@ -221,8 +236,9 @@ Measured on an RTX 5090, encoder only, ten prompts in one pass, about 150 words 
 | Qwen3-VL 8B | int8 ConvRot | 2.9 s | 8.9 s | about 2.5 GB |
 | Qwen3-8B | fp8 mixed, with its own head | 4.2 s | 7.7 s | about 3.6 GB |
 | Qwen3.5 9B | int8 ConvRot | 3.4 s | 10.0 s | about 3.8 GB |
+| Molmo2-8B (a writer of its own) | int8 ConvRot | 3.7 to 4.3 s | 11.5 s | about 2.2 GB, and 9.4 GB for the model itself |
 
-The extra memory (the output table and the cache of the pass) is released when the job's prompts are written, before the image model starts. A single prompt takes nearly as long as ten.
+The extra memory (the output table and the cache of the pass) is released when the job's prompts are written, before the image model starts. A single prompt takes nearly as long as ten. A writer of its own is not part of the checkpoint, so its whole model counts as extra; the first job with it also reads the file and moves it to the GPU (7 to 11 s more here).
 
 A text is written one token at a time, and every token is a trip through the whole encoder: one to two thousand small GPU operations. Started one by one from Python they keep the GPU waiting; it was busy a third of the time, at about 125 W. Two things remove that:
 
@@ -241,6 +257,8 @@ With the shipped presets all six write plain, usable text. In the last calibrati
 - **Qwen3-8B (FLUX.2 Klein 9B)**, with its own output head, is as dependable as Qwen3-VL 8B. Thinking works on it. Through a borrowed head (see above) about one text in ten does not come to an end by itself and is cut back to the length.
 - **Qwen3-4B (Z-Image, Klein 4B)** keeps your subjects and lettering and now stays plain, but it is the least obedient: with *Legible world* it writes only about a third of its lettering in capitals and adds text to scenes that have nothing to write on, and now and then it runs into a loop (the text before the loop is kept).
 - **Pruna's P-Image-OSS encoder** (formerly P-H3-Image) is the weakest writer. It is a Qwen3-VL 4B retrained for the image model: in a few texts of a hundred it breaks off and starts talking to itself (the text is cut there, and when too little is left the prompt is used as typed). With *Legible world* its lettering is mostly invented words ("SARVAN", "BANJAL"), a route number is rare and a destination rarer, and it gets a fact wrong now and then: in the author's test two of ten trams were given rubber tyres by the text, and MiniMax-H3-Image drew them so. The stock encoder built as described above writes like Krea 2's: real names in the language of the place, and every text usable.
+
+- **Molmo2-8B (a writer of its own)** was not part of that calibration; it was read on about twenty texts with *Faithful detail* and *Legible world*, without an image model behind it. It writes like the caption model it is: short, plain statements of what a thing is, its colour, its material and where it is, then the camera and the light; the texts were 90 to 210 words for 150 asked. With *Legible world* it gave a bus a route number and a destination in capitals. Two habits: a prompt typed without a capital is continued without capitals, sentence after sentence, and now and then a detail is wrong (a tram was given rubber wheels).
 
 No refusals were seen with ordinary prompts. A stock model may still decline some; then the prompt is used as typed.
 

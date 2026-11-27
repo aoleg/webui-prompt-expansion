@@ -1,4 +1,5 @@
-"""Prompt Expansion: the image model's own text encoder rewrites every prompt of a job before it is encoded."""
+"""Prompt Expansion: the image model's own text encoder, or a writer model of its own, rewrites every prompt of a job
+before it is encoded."""
 
 import os
 
@@ -30,10 +31,17 @@ SPEED_OPTIONS = {
 LAST_PRESET = "prompt_expansion_last_preset"
 
 
+# The writer: the checkpoint's own text encoder, or a model file of its own from Forge's text encoder folders
+# (Molmo2-8B, recognised by its tensors). The choice is kept like the preset, by the name it has in the list.
+LAST_WRITER = "prompt_expansion_last_writer"
+OWN_ENCODER = "This checkpoint's text encoder"
+
+
 def register_settings():
     section = ("prompt_expansion", TITLE)
     shared.options_templates.update(shared.options_section(section, {name: shared.OptionInfo(True, label).info(info) for name, (label, info) in SPEED_OPTIONS.items()}))
-    shared.options_templates.update(shared.options_section((None, TITLE), {LAST_PRESET: shared.OptionInfo("", "Last chosen Prompt Expansion preset")}))
+    hidden = {LAST_PRESET: shared.OptionInfo("", "Last chosen Prompt Expansion preset"), LAST_WRITER: shared.OptionInfo("", "Last chosen Prompt Expansion writer")}
+    shared.options_templates.update(shared.options_section((None, TITLE), hidden))
 
 
 def remembered_preset(names: list):
@@ -44,29 +52,57 @@ def remembered_preset(names: list):
     return preset_files.find(presets, getattr(shared.opts, LAST_PRESET, "")) or presets[0]
 
 
-def remember_preset(name):
-    """Keep the chosen preset for the next start. Quietly does nothing with frozen settings."""
-    if not name or getattr(shared.opts, LAST_PRESET, "") == name:
+def remember(option, name):
+    """Keep a choice for the next start. Quietly does nothing with frozen settings."""
+    if not name or getattr(shared.opts, option, "") == name:
         return
     try:
-        if shared.opts.set(LAST_PRESET, name):
+        if shared.opts.set(option, name):
             shared.opts.save(shared.config_filename)
     except Exception:  # noqa: BLE001 - --freeze-settings and the like; remembering is a convenience
         pass
+
+
+def remember_preset(name):
+    remember(LAST_PRESET, name)
 
 
 if getattr(shared, "options_templates", None) is not None:
     register_settings()
 
 
-def status_line() -> str:
-    """Whether the loaded checkpoint's text encoder can write. Never loads a model."""
+def writer_files() -> tuple[dict, list]:
+    """({name in the list: file} of the writer models in Forge's text encoder folders, the Molmo2 files there that
+    cannot write). Reads file headers only, each file once."""
+    try:
+        from lib_prompt_expansion import molmo
+        from lib_prompt_expansion.headfile import library_files
+
+        usable, refused = molmo.files(library_files())
+        return {found.choice: found.path for found in usable}, refused
+    except Exception:  # noqa: BLE001 - a list is not worth an error in the panel
+        return {}, []
+
+
+def remembered_writer(names: list) -> str:
+    """The writer to open with: the one chosen last time if it is still offered, else the checkpoint's text encoder."""
+    last = getattr(shared.opts, LAST_WRITER, "")
+    return last if last in names else OWN_ENCODER
+
+
+def status_line(writer=None) -> str:
+    """Whether the writer can write: the one named, or the one chosen last time. Never loads a model."""
     from modules import sd_models
 
+    files, refused = writer_files()
+    passed_over = "".join(f" *Not offered as a writer: {found.name}, {found.brief}.*" for found in refused)
+    path = files.get(remembered_writer(list(files)) if writer is None else writer)
+    if path is not None:
+        return status(None, path)[1] + passed_over
     model = sd_models.model_data.sd_model
     if model is None or type(model).__name__ == "FakeInitialModel":
-        return "No checkpoint is loaded yet. The text encoder is checked when you generate."
-    return status(model)[1] + pruna_hint()
+        return "No checkpoint is loaded yet. The text encoder is checked when you generate." + passed_over
+    return status(model)[1] + pruna_hint() + passed_over
 
 
 STOCK_ENCODER_INFO = (
@@ -119,9 +155,19 @@ class PromptExpansionScript(scripts.Script):
             chosen = remembered_preset(names)
             return bool(chosen.begin) if chosen else True
 
+        writers = [OWN_ENCODER, *writer_files()[0]]
+
         # No gr.Group in here: sd-webui-tabs-extension hides a panel that contains one.
         with InputAccordion(False, label=TITLE, elem_id=self.elem_id("enable")) as enabled:
-            state_text = gr.Markdown(status_line(), elem_id=self.elem_id("status"))
+            # read again at every page load, like the writer below it: the line speaks of the writer that is chosen
+            state_text = gr.Markdown(value=status_line, elem_id=self.elem_id("status"))
+            writer = gr.Dropdown(
+                label="Writer",
+                info="What writes the expansion: the text encoder of the loaded checkpoint, or a model of its own from the text encoder folders (Molmo2-8B), which works with every checkpoint",
+                choices=writers,
+                value=lambda: remembered_writer(writers),
+                elem_id=self.elem_id("writer"),
+            )
             with gr.Row():
                 preset = gr.Dropdown(label="Preset", choices=names, value=opening_name, elem_id=self.elem_id("preset"), scale=8)
                 refresh = ToolButton(value=refresh_symbol, elem_id=self.elem_id("refresh"), tooltip="Reload the preset files, check the loaded checkpoint, and let a failed download be tried again")
@@ -138,7 +184,7 @@ class PromptExpansionScript(scripts.Script):
                 value=opening_begin,
                 elem_id=self.elem_id("begin"),
             )
-            for component in (preset, instruction, begin):
+            for component in (writer, preset, instruction, begin):
                 component.do_not_save_to_config = True
             with gr.Row():
                 words = gr.Slider(label="Length (words)", info="0 = the preset's own length", minimum=0, maximum=400, step=10, value=0, elem_id=self.elem_id("words"), scale=6)
@@ -194,18 +240,26 @@ class PromptExpansionScript(scripts.Script):
             remember_preset(found.name)
             return found.text, bool(found.begin)
 
-        def reload(current):
+        def reload(current, writing):
             head_fetch.forget_failures()  # a download that failed is tried again by the next job
             fresh = [item.name for item in preset_files.load()]
-            return gr.update(choices=fresh, value=current if current in fresh else (fresh[0] if fresh else None)), status_line()
+            offered = [OWN_ENCODER, *writer_files()[0]]
+            writing = writing if writing in offered else OWN_ENCODER
+            return gr.update(choices=fresh, value=current if current in fresh else (fresh[0] if fresh else None)), gr.update(choices=offered, value=writing), status_line(writing)
+
+        def pick_writer(name):
+            remember(LAST_WRITER, name)
+            return status_line(name)
 
         preset.change(fn=pick, inputs=[preset], outputs=[instruction, begin], show_progress=False)
-        refresh.click(fn=reload, inputs=[preset], outputs=[preset, state_text], show_progress=False)
-        enabled.change(fn=status_line, inputs=[], outputs=[state_text], show_progress=False)
+        writer.change(fn=pick_writer, inputs=[writer], outputs=[state_text], show_progress=False)
+        refresh.click(fn=reload, inputs=[preset, writer], outputs=[preset, writer, state_text], show_progress=False)
+        enabled.change(fn=status_line, inputs=[writer], outputs=[state_text], show_progress=False)
         random.click(fn=lambda: -1, inputs=[], outputs=[seed], show_progress=False)
         reuse.click(fn=lambda: -1 if substitute.last_start_seed is None else substitute.last_start_seed, inputs=[], outputs=[seed], show_progress=False)
 
-        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking, begin, encode_all]
+        # the writer comes last: a call through the API that does not know it gets the checkpoint's text encoder
+        return [enabled, preset, instruction, words, seed, do_sample, temperature, top_p, max_tokens, rows, thinking, begin, encode_all, writer]
 
     def scripts_after_me(self, p) -> set[str]:
         """Names ("Class@file.py") of the scripts whose process step runs after this one."""
@@ -216,13 +270,19 @@ class PromptExpansionScript(scripts.Script):
             return set()
         return {f"{type(script).__name__}@{os.path.basename(script.filename or '')}" for script in order[mine + 1 :]}
 
-    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, begin=False, encode_all=True, *_):
+    def process(self, p, enabled=False, preset=None, instruction="", words=0, seed=-1, do_sample=True, temperature=0.6, top_p=0.8, max_tokens=512, rows=10, thinking=False, begin=False, encode_all=True, writer=None, *_):
         if not enabled:
             return
         instruction = (instruction or "").strip()
         if not instruction:
             print(f"[{TITLE}] The expansion prompt is empty; the prompts are used as typed.")
             return
+        writer_file = ""
+        if writer and writer != OWN_ENCODER:
+            writer_file = writer_files()[0].get(writer)
+            if not writer_file:
+                print(f"[{TITLE}] The writer \"{writer}\" is not in the text encoder folders any more; the prompts are used as typed. Choose another writer in the panel.")
+                return
 
         presets = preset_files.load()
         chosen = preset_files.find(presets, preset)
@@ -238,6 +298,7 @@ class PromptExpansionScript(scripts.Script):
             begin=bool(begin),
             replay=bool(getattr(shared.opts, "prompt_expansion_replay", True)),
             int8_kernel=bool(getattr(shared.opts, "prompt_expansion_int8_kernel", True)),
+            writer_file=writer_file,
         )
 
         later = self.scripts_after_me(p)

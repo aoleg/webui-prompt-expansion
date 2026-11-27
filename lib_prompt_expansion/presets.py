@@ -216,7 +216,10 @@ def _phrase(pattern: str) -> re.Pattern:
     """A "# replace in" pattern: words in any case, any run of spaces for a space, "*" for the rest of a word."""
     parts = re.split(r"(\*)", pattern.strip())
     body = "".join(r"(\w*)" if part == "*" else r"\s+".join(re.escape(word) for word in part.split(" ")) for part in parts)
-    return re.compile(rf"(?<!\w){body}(?!\w)", re.I)
+    # word edges only where the pattern begins or ends with a word: '" in double quotes' follows a closing quote
+    before = r"(?<!\w)" if re.match(r"[\w*]", pattern.strip()) else ""
+    after = r"(?!\w)" if re.search(r"[\w*]$", pattern.strip()) else ""
+    return re.compile(before + body + after, re.I)
 
 
 def replace(text: str, pattern: str, replacement: str) -> tuple[str, int]:

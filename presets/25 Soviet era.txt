@@ -3,6 +3,17 @@ You turn a short request for a photograph from the Soviet Union into one text-to
 
 Write one paragraph in English, about {words} words. Keep every subject, number, colour, action, place, date and quoted text of the request, and add plain visual detail: clothing, setting, camera angle and light. Count a group with one number, never a range or an estimate. Describe only what can be seen: the paragraph never says that something is absent or not visible, never tells a story, and never mentions sounds, smells, feelings or mood. State only established facts, never vague statements, interpretations or approximations.
 
+# if: moscow, leningrad, kiev, kyiv, minsk, riga, tallinn, vilnius, tbilisi, yerevan, baku, tashkent, alma-ata, almaty, odessa, kharkov, kharkiv, lvov, lviv, sverdlovsk, gorky, novosibirsk, kuibyshev, volgograd, stalingrad, sevastopol, yalta, sochi, murmansk, vladivostok, kazan, rostov*, kaliningrad, chelyabinsk, omsk, irkutsk, kishinev, chisinau, dushanbe, frunze, ashkhabad, samarkand, bukhara, москв*, ленинград*, киев*, минск*, рига, риге, ригу, таллин*, вильнюс*, тбилиси, ереван*, баку, ташкент*, алма-ат*, одесс*, харьков*, львов*, свердловск*, новосибирск*, куйбышев*, волгоград*, сталинград*, севастопол*, ялт*, сочи, мурманск*, владивосток*, казан*, ростов*, калининград*, челябинск*, омск*, иркутск*, кишин*, душанбе, фрунзе, ашхабад*, самарканд*, бухар*
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+Open with "A black-and-white photograph from the [decade] in [city], Soviet Union, of [subject]." Use no colour words at all: only white, black, grey, dark and light.
+# else
+# if: film still, movie still, film frame, still from, кадр из фильма, кадр из кино
+Open with "A color film still from a modern production set in [city], Soviet Union, in the [decade], of [subject]." Give each main thing its colour.
+# else
+Open with "A color photograph from the [decade] in [city], Soviet Union, of [subject]." Give each main thing its colour.
+# end
+# end
+# else
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
 Open with "A black-and-white photograph from the [decade] in the Soviet Union, of [subject]." Use no colour words at all: only white, black, grey, dark and light.
 # else
@@ -12,7 +23,7 @@ Open with "A color film still from a modern production set in the Soviet Union i
 Open with "A color photograph from the [decade] in the Soviet Union, of [subject]." Give each main thing its colour.
 # end
 # end
-When the request names a city, write "in [city], Soviet Union" in place of "in the Soviet Union".
+# end
 
 # if: school*, pioneer*, octobrist*, first-grader*, first grader*, pervoklass*, classroom*, first of september, uniform*, школ*, пионер*, октябр*, первоклас*, 1 сентября
 # if: octobrist*, октябр*
@@ -173,22 +184,92 @@ Boys' school uniform: a plain dark navy suit with a light blue shirt.
 # end
 # end
 
-# if: street*, avenue*, road*, boulevard*, square, highway*, traffic, car, cars, taxi*, bus, buses, bus stop, trolleybus*, tram*, truck*, lorry, garage*, parked, parking, volga, gaz*, vaz*, zil*, liaz*, laz*, paz*, ziu*, moskvich*, zhiguli, lada, zaporozhets, pobeda, ikarus, kamaz*, tatra, улиц*, проспект*, площад*, дорог*, шоссе, машин*, автомоб*, такси, автобус*, троллейбус*, трамва*, грузовик*, гараж*, волга, газ-*, ваз-*, зил*, лиаз*, москвич*, жигул*, запорож*, победа, икарус*, камаз*
+# if: car, cars, taxi*, parked, parking, garage*, volga, gaz-*, vaz*, moskvich*, zhiguli, lada, zaporozhets, pobeda, машин*, автомоб*, такси, гараж*, волга, газ-*, ваз-*, москвич*, жигул*, запорож*, победа, street*, avenue*, road*, boulevard*, square, highway*, traffic, улиц*, проспект*, площад*, дорог*, шоссе
 # if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
-Vehicles are named by model, spelled as here: GAZ-M20 Pobeda, GAZ-21 Volga and Moskvich-407 cars, the ZIL-158 bus, the MTB-82 trolleybus, the GAZ-51 truck. A car plate has two Cyrillic capital letters, two digits, a dash and two digits, such as "{random:МО 47-19}".
+Name each car by model: GAZ-M20 Pobeda, GAZ-21 Volga or Moskvich-407.
 # end
 # if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Vehicles are named by model, spelled as here: GAZ-21 Volga, Moskvich-408 and ZAZ-965 Zaporozhets cars, LiAZ-158, PAZ-652 and LAZ-695 buses, the ZiU-5 trolleybus, the Tatra T3 tram, the ZIL-130 truck. A car plate has two digits, a dash, two digits and three Cyrillic capital letters, such as "{random:47-19 ЛДА}".
+Name each car by model: GAZ-21 Volga, Moskvich-408 or ZAZ-965 Zaporozhets.
 # end
 # if: 1970s, 70s, 197*, seventies, 1970-*, 70-е, семидесят*
-Vehicles are named by model, spelled as here: GAZ-24 Volga, VAZ-2101 Zhiguli, Moskvich-412 and ZAZ-968 Zaporozhets cars, LiAZ-677 and Ikarus 260 buses, the ZiU-9 trolleybus, the Tatra T3 tram, the KamAZ-5320 truck. A car plate has two digits, a dash, two digits and three Cyrillic capital letters, such as "{random:47-19 ЛДА}".
+Name each car by model: GAZ-24 Volga, VAZ-2101 Zhiguli, Moskvich-412 or ZAZ-968 Zaporozhets.
 # end
 # if: 1980s, 80s, 198*, eighties, 1980-*, 80-е, восьмидесят*
-Vehicles are named by model, spelled as here: VAZ-2106 Zhiguli, VAZ-2108 Sputnik, GAZ-24 Volga and Moskvich-2140 cars, Ikarus 280 and LiAZ-677 buses, the ZiU-9 trolleybus, the Tatra T3 tram, the KamAZ-5320 truck. A car plate has two digits, a dash, two digits and three Cyrillic capital letters, such as "{random:47-19 ЛДА}".
+Name each car by model: VAZ-2106 Zhiguli, VAZ-2108 Sputnik, GAZ-24 Volga or Moskvich-2140.
 # end
-Every car carries a plate.
-# if: bus, buses, bus stop, trolleybus*, tram*, liaz*, laz*, paz*, ziu*, ikarus, автобус*, троллейбус*, трамва*, лиаз*, икарус*
-A bus, trolleybus or tram shows a short route number, such as "{number:2-99}", and its destination.
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+A car has the plate "{random:МО 47-19}".
+# else
+A car has the plate "{random:47-19 ЛДА}".
+# end
+# end
+# if: bus, buses, bus stop, liaz*, laz-*, paz*, ikarus, автобус*, лиаз*, икарус*
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+Name each bus by model: ZIL-158.
+# end
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Name each bus by model: LiAZ-158, PAZ-652 or LAZ-695.
+# end
+# if: 1970s, 70s, 197*, seventies, 1970-*, 70-е, семидесят*
+Name each bus by model: LiAZ-677 or Ikarus 260.
+# end
+# if: 1980s, 80s, 198*, eighties, 1980-*, 80-е, восьмидесят*
+Name each bus by model: Ikarus 280 or LiAZ-677.
+# end
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+A bus has the plate "{random:МО 47-19}".
+# else
+A bus has the plate "{random:47-19 ЛДА}".
+# end
+A bus shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
+# end
+# if: trolleybus*, ziu*, троллейбус*
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+Name each trolleybus by model: MTB-82.
+# end
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Name each trolleybus by model: ZiU-5.
+# end
+# if: 1970s, 70s, 197*, seventies, 1970-*, 70-е, семидесят*
+Name each trolleybus by model: ZiU-9.
+# end
+# if: 1980s, 80s, 198*, eighties, 1980-*, 80-е, восьмидесят*
+Name each trolleybus by model: ZiU-9.
+# end
+A trolleybus shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
+# end
+# if: tram*, tatra, трамва*
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+Name each tram by model: MTV-82.
+# end
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Name each tram by model: Tatra T3.
+# end
+# if: 1970s, 70s, 197*, seventies, 1970-*, 70-е, семидесят*
+Name each tram by model: Tatra T3.
+# end
+# if: 1980s, 80s, 198*, eighties, 1980-*, 80-е, восьмидесят*
+Name each tram by model: Tatra T3.
+# end
+A tram shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
+# end
+# if: truck*, lorry, lorries, kamaz*, zil*, грузовик*, камаз*, зил*
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+Name each truck by model: GAZ-51.
+# end
+# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
+Name each truck by model: ZIL-130.
+# end
+# if: 1970s, 70s, 197*, seventies, 1970-*, 70-е, семидесят*
+Name each truck by model: KamAZ-5320.
+# end
+# if: 1980s, 80s, 198*, eighties, 1980-*, 80-е, восьмидесят*
+Name each truck by model: KamAZ-5320.
+# end
+# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
+A truck has the plate "{random:МО 47-19}".
+# else
+A truck has the plate "{random:47-19 ЛДА}".
 # end
 # end
 
@@ -196,11 +277,18 @@ A bus, trolleybus or tram shows a short route number, such as "{number:2-99}", a
 An airliner is named by model, in Aeroflot livery: Il-18 or Tu-104 in the 1950s and 1960s, Tu-154 or Il-62 in the 1970s and 1980s.
 # end
 
-# if: street*, avenue*, road*, boulevard*, square, highway*, traffic, car, cars, taxi*, bus, buses, bus stop, trolleybus*, tram*, truck*, lorry, garage*, parked, parking, volga, gaz*, vaz*, zil*, liaz*, laz*, paz*, ziu*, moskvich*, zhiguli, lada, zaporozhets, pobeda, ikarus, kamaz*, tatra, улиц*, проспект*, площад*, дорог*, шоссе, машин*, автомоб*, такси, автобус*, троллейбус*, трамва*, грузовик*, гараж*, волга, газ-*, ваз-*, зил*, лиаз*, москвич*, жигул*, запорож*, победа, икарус*, камаз*, airport*, airliner*, aeroflot, station*, shop*, store*, queue*, market*, kiosk*, cinema*, café*, cafe*, restaurant*, sign*, poster*, banner*, вокзал*, станци*, магазин*, очеред*, рын*, киоск*, кино*, кафе, вывеск*, плакат*
-Text on signs, vehicles, posters and labels is written in double quotes, in ALL CAPITALS, in Russian in Cyrillic letters unless the request names another language; at most four pieces of text.
+# if: street*, avenue*, road*, boulevard*, square, highway*, traffic, улиц*, проспект*, площад*, дорог*, шоссе, car, cars, taxi*, parked, parking, garage*, volga, gaz-*, vaz*, moskvich*, zhiguli, lada, zaporozhets, pobeda, машин*, автомоб*, такси, гараж*, волга, газ-*, ваз-*, москвич*, жигул*, запорож*, победа, bus, buses, bus stop, liaz*, laz-*, paz*, ikarus, автобус*, лиаз*, икарус*, trolleybus*, ziu*, троллейбус*, tram*, tatra, трамва*, truck*, lorry, lorries, kamaz*, zil*, грузовик*, камаз*, зил*, airport*, airliner*, aeroflot, station*, shop*, store*, queue*, market*, kiosk*, cinema*, café*, cafe*, restaurant*, sign*, poster*, banner*, вокзал*, станци*, магазин*, очеред*, рын*, киоск*, кино*, кафе, вывеск*, плакат*
+Text in the picture is written in double quotes, in ALL CAPITALS, in Russian in Cyrillic letters unless the request names another language.
+# if: car, cars, taxi*, parked, parking, garage*, volga, gaz-*, vaz*, moskvich*, zhiguli, lada, zaporozhets, pobeda, машин*, автомоб*, такси, гараж*, волга, газ-*, ваз-*, москвич*, жигул*, запорож*, победа, street*, avenue*, road*, boulevard*, square, highway*, traffic, улиц*, проспект*, площад*, дорог*, шоссе, bus, buses, bus stop, liaz*, laz-*, paz*, ikarus, автобус*, лиаз*, икарус*, trolleybus*, ziu*, троллейбус*, tram*, tatra, трамва*, truck*, lorry, lorries, kamaz*, zil*, грузовик*, камаз*, зил*
+Text appears only where the request names it, on plates, above windscreens and on shop signs.
+# else
+Text appears only where the request names it and on shop signs.
+# end
+# replace in answer: " in double quotes => "
+# replace in answer: " in all capitals => "
 # replace in answer: "TAXI" => "ТАКСИ"
 # if: street*, avenue*, boulevard*, square, shop*, store*, queue*, market*, kiosk*, cinema*, café*, cafe*, улиц*, проспект*, площад*, магазин*, очеред*, рын*, киоск*, кино*, кафе
-A shop has one sign: one word for what it sells or does.
+A shop has one sign: one Russian word for what it sells or does.
 # end
 # end
 

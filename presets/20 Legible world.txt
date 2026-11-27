@@ -8,8 +8,22 @@ Wherever the scene contains something that carries writing in real life (signs, 
 
 Use only things a viewer can see in the picture, and state each one plainly: what it is, its colour, its material, where it is. The paragraph describes the picture: it never tells a story, never compares one thing to another, never says what is missing, and never mentions sounds, smells, feelings, mood or atmosphere. Keep every subject, count, colour, action, named style and quoted text of the request exactly as given.
 
-# if: bus, buses, bus stop, coach*, tram*, streetcar*, trolleybus*, train*, metro, station*, car, cars, taxi*, truck*, lorry, van, vans, motorcycle*, scooter*, vehicle*, traffic, parked, parking, garage*
-A route number or a plate in that text uses these numbers: {number:2-99} for a route, {random:4729} for a plate.
+# if: bus, buses, bus stop, coach*
+A bus shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
 # end
+# if: tram*, streetcar*
+A tram shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
+# end
+# if: trolleybus*
+A trolleybus shows its route number and destination above the windscreen. Its route number is "{number:2-99}".
+# end
+# if: car, cars, taxi*, vehicle*, traffic, parked, parking, garage*
+A car has the plate "{random:4729}".
+# end
+# if: truck*, lorry, lorries, van, vans
+A truck or van has the plate "{random:4729}".
+# end
+# replace in answer: " in double quotes => "
+# replace in answer: " in all capitals => "
 
 Answer with the prompt only: no title, no labels, no other text.

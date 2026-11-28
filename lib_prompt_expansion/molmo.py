@@ -46,11 +46,7 @@ SKIPPED = ("model.vision_backbone.", "model.transformer.wte.new_embedding")
 CONVROT_GROUP = 256
 
 _BLOCK = re.compile(re.escape(BLOCKS) + r"(\d+)\.")
-# Forge's bundled Qwen tokenizers, the one of Qwen3-8B first; all three hold the same vocabulary and merges
-_TOKENIZERS = (("black-forest-labs", "FLUX.2-klein-9B"), ("black-forest-labs", "FLUX.2-klein-4B"), ("Tongyi-MAI", "Z-Image-Turbo"))
-
 _looked: dict[tuple, Optional["Found"]] = {}
-_tokenizer = None
 
 
 # --- recognising a file ---------------------------------------------------------------------------------------
@@ -88,7 +84,7 @@ class Found:
         return f"{self.name} {self.problem}"
 
 
-def _problem(tensors: dict) -> tuple[str, str]:
+def problem_of(tensors: dict) -> tuple[str, str]:
     """(why a Molmo2 file cannot write, the same in a few words); two empty texts when it can."""
     shape = tensors[EMBEDDING].get("shape")
     layers = molmo_layers(tensors)
@@ -128,7 +124,7 @@ def look(path: str) -> Optional[Found]:
                     tensors = json.loads(raw)
                     tensors.pop("__metadata__", None)
                     if is_molmo(tensors):
-                        found = Found(str(path), molmo_layers(tensors), f"{BLOCKS}0.{ATTENTION}{QUANTIZED}" in tensors, *_problem(tensors))
+                        found = Found(str(path), molmo_layers(tensors), f"{BLOCKS}0.{ATTENTION}{QUANTIZED}" in tensors, *problem_of(tensors))
             except (OSError, ValueError, struct.error, AttributeError, TypeError):
                 found = None
         _looked[stamp] = found
@@ -285,22 +281,3 @@ def load(path: str):
             return build(convert(state))
         except (KeyError, ValueError) as problem:
             raise UnsupportedEncoder(f"{found.name} does not have the layout of a {LABEL} file ({problem})") from problem
-
-
-def tokenizer():
-    """The Qwen tokenizer Forge bundles for its own Qwen3 text encoders."""
-    global _tokenizer
-    if _tokenizer is None:
-        from backend import memory_management
-        from transformers import AutoTokenizer
-
-        # `backend` itself is a package without a file of its own, so one of its modules gives the folder
-        root = os.path.join(os.path.dirname(os.path.abspath(memory_management.__file__)), "huggingface")
-        for owner, repository in _TOKENIZERS:
-            folder = os.path.join(root, owner, repository, "tokenizer")
-            if os.path.isdir(folder):
-                _tokenizer = AutoTokenizer.from_pretrained(folder)
-                break
-        else:
-            raise UnsupportedEncoder(f"{LABEL} needs the Qwen tokenizer that Forge Neo bundles, and it is not in {root}")
-    return _tokenizer

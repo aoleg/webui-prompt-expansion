@@ -31,15 +31,25 @@ SPEED_OPTIONS = {
 LAST_PRESET = "prompt_expansion_last_preset"
 
 
-# The writer: the checkpoint's own text encoder, or a model file of its own from Forge's text encoder folders
-# (Molmo2-8B, recognised by its tensors). The choice is kept like the preset, by the name it has in the list.
+# The writer: the checkpoint's own text encoder, or a file of Forge's text encoder folders that can write, loaded as
+# a model of its own (recognised by its tensors). The choice is kept like the preset, by the name it has in the list.
 LAST_WRITER = "prompt_expansion_last_writer"
 OWN_ENCODER = "This checkpoint's text encoder"
 
 
+# Settings > Prompt Expansion: what becomes of a writer model of its own when a job's prompts are written. Left
+# alone it stays on the GPU, and Forge moves something out when it needs the memory, not necessarily the writer.
+AFTER_WRITING = "prompt_expansion_after_writing"
+AFTER_WRITING_CHOICES = {"Stays on the GPU until Forge needs the memory": "keep", "Is moved to RAM at once": "ram", "Is released at once (the next job reads its file again)": "release"}
+
+
 def register_settings():
     section = ("prompt_expansion", TITLE)
-    shared.options_templates.update(shared.options_section(section, {name: shared.OptionInfo(True, label).info(info) for name, (label, info) in SPEED_OPTIONS.items()}))
+    options = {name: shared.OptionInfo(True, label).info(info) for name, (label, info) in SPEED_OPTIONS.items()}
+    options[AFTER_WRITING] = shared.OptionInfo(next(iter(AFTER_WRITING_CHOICES)), "When the prompts are written, a writer model of its own", gr.Radio, {"choices": tuple(AFTER_WRITING_CHOICES)}).info(
+        "moving it out at once leaves the whole GPU to the image model; the checkpoint's own text encoder is never moved, it is needed right after"
+    )
+    shared.options_templates.update(shared.options_section(section, options))
     hidden = {LAST_PRESET: shared.OptionInfo("", "Last chosen Prompt Expansion preset"), LAST_WRITER: shared.OptionInfo("", "Last chosen Prompt Expansion writer")}
     shared.options_templates.update(shared.options_section((None, TITLE), hidden))
 
@@ -67,18 +77,32 @@ def remember_preset(name):
     remember(LAST_PRESET, name)
 
 
+def remember_headers():
+    """What the text encoder files' headers say is kept in Forge's own disk cache, so a folder is read once and not
+    at every start. Without the cache the files are read once per session."""
+    try:
+        from modules import cache
+
+        store = cache.cache("prompt_expansion_writers")
+        from lib_prompt_expansion import writers
+
+        writers.use_store(store)
+    except Exception:  # noqa: BLE001 - remembering is a convenience
+        pass
+
+
 if getattr(shared, "options_templates", None) is not None:
     register_settings()
+    remember_headers()
 
 
 def writer_files() -> tuple[dict, list]:
-    """({name in the list: file} of the writer models in Forge's text encoder folders, the Molmo2 files there that
-    cannot write). Reads file headers only, each file once."""
+    """({name in the list: file} of the models in Forge's text encoder folders that can write, the files of a
+    supported model there that cannot). Reads file headers only, each file once."""
     try:
-        from lib_prompt_expansion import molmo
-        from lib_prompt_expansion.headfile import library_files
+        from lib_prompt_expansion.adapters import writer_files as scan
 
-        usable, refused = molmo.files(library_files())
+        usable, refused = scan()
         return {found.choice: found.path for found in usable}, refused
     except Exception:  # noqa: BLE001 - a list is not worth an error in the panel
         return {}, []
@@ -163,7 +187,7 @@ class PromptExpansionScript(scripts.Script):
             state_text = gr.Markdown(value=status_line, elem_id=self.elem_id("status"))
             writer = gr.Dropdown(
                 label="Writer",
-                info="What writes the expansion: the text encoder of the loaded checkpoint, or a model of its own from the text encoder folders (Molmo2-8B), which works with every checkpoint",
+                info="What writes the expansion: the text encoder of the loaded checkpoint, or any file of the text encoder folders that can write (Qwen3, Qwen3-VL, Qwen3.5, Molmo2), loaded as a model of its own; that works with every checkpoint",
                 choices=writers,
                 value=lambda: remembered_writer(writers),
                 elem_id=self.elem_id("writer"),
@@ -299,6 +323,7 @@ class PromptExpansionScript(scripts.Script):
             replay=bool(getattr(shared.opts, "prompt_expansion_replay", True)),
             int8_kernel=bool(getattr(shared.opts, "prompt_expansion_int8_kernel", True)),
             writer_file=writer_file,
+            after_writing=AFTER_WRITING_CHOICES.get(getattr(shared.opts, AFTER_WRITING, ""), "keep"),
         )
 
         later = self.scripts_after_me(p)

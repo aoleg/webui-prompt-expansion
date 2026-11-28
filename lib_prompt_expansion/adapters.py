@@ -7,10 +7,10 @@ for writing only (file_adapter); choose() decides between the two.
 import gc
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable, Optional
 
-from . import molmo
+from . import molmo, writers
 from .fetch import HeadDownload, existing, failure
 from .generator import UnsupportedEncoder
 from .headfile import find_head, library_files, loaded_files
@@ -80,6 +80,7 @@ SPECS = {
     "Qwen35_9B": Spec("Qwen3.5 9B", tied=False, think="closed"),
     # Molmo2's language model is Qwen3-8B, trained on without a reasoning block: its chat format has none. It is
     # never a checkpoint's text encoder as a whole; molmo.py loads it from its file, with its own head (file_adapter).
+    # The smaller Qwen3.5 models (2B, 4B) are written with through the Qwen3.5 entry above; writers.py knows their sizes.
     "Molmo2_8B": Spec(molmo.LABEL, tied=False, think="never"),
 }
 
@@ -115,6 +116,10 @@ class Adapter:
     def decode(self, ids: list[int]) -> str:
         return self.tokenizer.decode(ids, skip_special_tokens=False)
 
+    def describe(self) -> str:
+        """For the infotext: the model, and the file when the writer is a model of its own."""
+        return f"{self.label} from {os.path.basename(self.own_file)}" if self.own_file else self.label
+
 
 def _engines(sd_model):
     for name, value in getattr(sd_model, "__dict__", {}).items():
@@ -129,6 +134,25 @@ def _token_id(tokenizer, token: str) -> Optional[int]:
         return None
     unknown = getattr(tokenizer, "unk_token_id", None)
     return found if isinstance(found, int) and found >= 0 and found != unknown else None
+
+
+def _separate_head(spec: Spec, label: str, vocab: int, hidden: int, loaded: list, shelf: list, fetch: Optional[Callable]) -> tuple:
+    """Where a model that keeps its output head apart, and was loaded without it, reads the head from.
+
+    Returns (the file, the head is borrowed from another model, why there is no file, (label, download) when the
+    model's own head can be downloaded). loaded: the model's own files; shelf: the other files to look through.
+    """
+    head_file, borrowed = find_head(vocab, hidden, loaded, shelf, spec.own_heads)
+    if (head_file is None or borrowed) and spec.head_download is not None and fetch is not None:
+        otherwise = f"Until then {label} writes through the head in {os.path.basename(head_file)}, which is clearly worse." if head_file else "Until then the prompts are used as typed."
+        fetched = fetch(spec.head_download, loaded, label, otherwise)
+        if fetched:
+            head_file, borrowed = fetched, False
+    if head_file is None:
+        source = f"; put {spec.head_download.describe()} into a text encoder folder" if spec.head_download else ""
+        reason = f"{label} needs its output head: the loaded encoder file has none, and no other text encoder file holds one of that size ({vocab} x {hidden}){source}"
+        return None, False, reason, (label, spec.head_download) if spec.head_download is not None else None
+    return head_file, borrowed, None, None
 
 
 def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: Optional[Iterable[str]] = None, fetch: Optional[Callable] = None) -> Adapter:
@@ -173,17 +197,10 @@ def find_adapter(sd_model, head_files: Optional[Iterable[str]] = None, library: 
             shelf = list(library_files() if library is None else library)
             if library is None and spec.head_download is not None:
                 shelf += existing(spec.head_download, loaded)  # downloaded in this session; Forge's list is older
-            head_file, head_borrowed = find_head(config.vocab_size, config.hidden_size, loaded, shelf, spec.own_heads)
-            if (head_file is None or head_borrowed) and spec.head_download is not None and fetch is not None:
-                otherwise = f"Until then {label} writes through the head in {os.path.basename(head_file)}, which is clearly worse." if head_file else "Until then the prompts are used as typed."
-                fetched = fetch(spec.head_download, loaded, label, otherwise)
-                if fetched:
-                    head_file, head_borrowed = fetched, False
+            head_file, head_borrowed, reason, downloadable = _separate_head(spec, label, config.vocab_size, config.hidden_size, loaded, shelf, fetch)
             if head_file is None:
-                source = f"; put {spec.head_download.describe()} into a text encoder folder" if spec.head_download else ""
-                reasons.append(f"{label} needs its output head: the loaded encoder file has none, and no other text encoder file holds one of that size ({config.vocab_size} x {config.hidden_size}){source}")
-                if spec.head_download is not None:
-                    missing = (label, spec.head_download)
+                reasons.append(reason)
+                missing = downloadable or missing
                 continue
 
         # Through a borrowed head the reasoning mode does not work: on Qwen3-8B with the head of Qwen3-VL 8B the
@@ -228,31 +245,73 @@ def release_file_adapter() -> None:
         pass
 
 
-def file_adapter(path: str) -> Adapter:
+def _head_shelf(found, spec: Spec, library: Optional[Iterable[str]]) -> list:
+    """The other files that hold an output head of this model's size. Their headers are known from the scan."""
+    family = writers.FAMILIES[found.family]
+    shelf = list(library_files() if library is None else library)
+    if library is None and spec.head_download is not None:
+        shelf += existing(spec.head_download, [found.path])  # downloaded in this session; Forge's list is older
+    return [path for path in shelf if path and writers.head_shape(path) == [family.vocab, family.hidden]]
+
+
+def file_adapter(path: str, fetch: Optional[Callable] = None, library: Optional[Iterable[str]] = None) -> Adapter:
     """The adapter of a writer that is a model file of its own. Raises UnsupportedEncoder with the reason.
 
     The file is read at the first call, and the model is kept for the next job, under Forge's memory management
     like any text encoder: it is moved to the GPU for a writing session and gives way when Forge needs the memory.
     Another file takes its place.
+
+    fetch, library: as for find_adapter, for a model that keeps its output head apart and whose file has none.
     """
     global _own
     stamp = _stamp(path)
     if _own is not None and stamp is not None and _own[0] == stamp:
         return _own[1]
     release_file_adapter()  # the old model goes before the new one is read
-    transformer = molmo.load(path)
-    tokenizer = molmo.tokenizer()
+    found = writers.look(path)
+    if found is None or found.problem:
+        writers.load(path)  # raises with the reason
+    family = writers.FAMILIES[found.family]
+    spec = SPECS[family.spec]
+
+    head_file, head_borrowed = None, False
+    if not found.head:
+        head_file, head_borrowed, reason, downloadable = _separate_head(spec, found.label, family.vocab, family.hidden, [str(path)], _head_shelf(found, spec, library), fetch)
+        if head_file is None:
+            raise HeadMissing(reason, *downloadable) if downloadable else UnsupportedEncoder(reason)
+
+    transformer = writers.load(path)
+    tokenizer = writers.tokenizer(family.tokenizer)
 
     from backend import memory_management
     from backend.patcher.base import ModelPatcher
 
     patcher = ModelPatcher(transformer, load_device=memory_management.text_encoder_device(), offload_device=memory_management.text_encoder_offload_device())
-    spec = SPECS[type(transformer).__name__]
+    think = "closed" if head_borrowed and spec.think == "optional" else spec.think  # see find_adapter
     end, stop = _token_id(tokenizer, "<|im_end|>"), _token_id(tokenizer, "<|endoftext|>")
     stop_ids = tuple(token for token in (end, stop) if token is not None) or QWEN_STOP_IDS
-    adapter = Adapter(spec.label, transformer, tokenizer, bool(spec.tied), spec.think == "optional", stop_ids, patcher, stop if stop is not None else QWEN_PAD_ID, think=spec.think, own_file=str(path))
+    adapter = Adapter(found.label, transformer, tokenizer, family.tied, think == "optional", stop_ids, patcher, stop if stop is not None else QWEN_PAD_ID, head_file, head_borrowed, think, spec.head_download, own_file=str(path))
     _own = (stamp, adapter)
     return adapter
+
+
+def writer_files(paths: Optional[Iterable[str]] = None) -> tuple[list, list]:
+    """(the files that can write, the files of a supported model that cannot, each with its reason), by model and
+    name. paths: by default every text encoder file Forge lists. Headers only, each file's once (writers.py).
+
+    A model that keeps its output head apart is offered when its file holds the head, when another file does, or
+    when the head can be downloaded at the first job.
+    """
+    paths = [path for path in (library_files() if paths is None else paths) if path]
+    usable, refused = [], []
+    for found in writers.files(paths):
+        family = writers.FAMILIES[found.family]
+        spec = SPECS[family.spec]
+        if not found.problem and not found.head and spec.head_download is None:
+            if find_head(family.vocab, family.hidden, [found.path], _head_shelf(found, spec, paths), spec.own_heads)[0] is None:
+                found = replace(found, problem=f"is a {family.label} without its output head, and no other text encoder file holds one of its size", brief=f"a {family.label} without its output head")
+        (refused if found.problem else usable).append(found)
+    return usable, refused
 
 
 def loaded_writer_file(loaded: Optional[Iterable[str]] = None) -> tuple[Optional[str], Optional[str]]:
@@ -274,7 +333,7 @@ def choose(sd_model, writer_file: Optional[str] = None, fetch: Optional[Callable
     A writer file that is not used any more is let go of here.
     """
     if writer_file:
-        return file_adapter(writer_file)
+        return file_adapter(writer_file, fetch=fetch)
     try:
         adapter = find_adapter(sd_model, head_files=head_files, fetch=fetch)
     except HeadMissing:
@@ -290,6 +349,59 @@ def choose(sd_model, writer_file: Optional[str] = None, fetch: Optional[Callable
     return adapter
 
 
+# What becomes of a writer of its own when a job's prompts are written. Left alone, it stays on the GPU until Forge
+# needs the memory for another model, and Forge then chooses what to move out; it need not be the writer.
+KEEP, TO_RAM, RELEASE = "keep", "ram", "release"
+
+
+def after_writing(adapter, mode: str) -> Optional[str]:
+    """Take a writer of its own off the GPU now that the job's prompts are written: to RAM (TO_RAM), from where the
+    next job brings it back, or altogether (RELEASE), so that the next job reads the file again. A checkpoint's own
+    text encoder is never touched: it is needed right after. Returns a word for the console, or None when nothing
+    was done. Never raises.
+    """
+    global _own, _untidy
+    if mode not in (TO_RAM, RELEASE) or not getattr(adapter, "own_file", None) or getattr(adapter, "patcher", None) is None:
+        return None
+    try:
+        import torch
+        from backend import memory_management
+
+        patcher = adapter.patcher
+        others = [loaded for loaded in memory_management.current_loaded_models if loaded.model is not patcher]
+        moved = len(others) != len(memory_management.current_loaded_models)
+        if moved:
+            # Forge's own way of making room, asked for everything this model holds and nothing else. Inside
+            # inference mode, where Forge moves its models (see writer.py).
+            with torch.inference_mode():
+                memory_management.free_memory(1e30, patcher.load_device, keep_loaded=others)
+        if mode == RELEASE:
+            if _own is not None and _own[1] is adapter:
+                _own, _untidy = None, True  # the model itself goes when the job lets go of its adapter (tidy)
+            return "the writer model was released"
+        return "the writer model was moved to RAM" if moved else None
+    except Exception:  # noqa: BLE001 - tidying up must not cost the job its prompts
+        return None
+
+
+_untidy = False  # a released writer waits for the job to let go of it
+
+
+def tidy() -> None:
+    """Called when a job is over: a writer that was released during it is gone only now, and its memory with it."""
+    global _untidy
+    if not _untidy:
+        return
+    _untidy = False
+    gc.collect()
+    try:
+        from backend import memory_management
+
+        memory_management.soft_empty_cache()
+    except Exception:  # noqa: BLE001 - the memory comes back at the next load at the latest
+        pass
+
+
 OWN_MODEL_NOTE = "a model of its own: it is loaded for the writing, next to the checkpoint's text encoder"
 
 
@@ -300,14 +412,32 @@ def _own_head(download: HeadDownload) -> str:
     return f"Its own head ({download.describe()}, {download.gigabytes()}) is downloaded when you first generate with this panel on."
 
 
-def file_status(path: str) -> tuple[bool, str]:
-    """For the UI: whether this writer file can write, and one line saying so. Reads the file's header only."""
-    found = molmo.look(path)
+def file_status(path: str, library: Optional[Iterable[str]] = None) -> tuple[bool, str]:
+    """For the UI: whether this writer file can write, and one line saying so. Reads headers only."""
+    found = writers.look(path)
+    name = os.path.basename(str(path))
     if found is None:
-        return False, f"Not available: {os.path.basename(str(path))} is {'not a model this extension can write with' if os.path.isfile(str(path)) else 'no longer there'}."
+        return False, f"Not available: {name} is {'not a model this extension can write with' if os.path.isfile(str(path)) else 'no longer there'}."
     if found.problem:
         return False, f"Not available: {found.refusal()}."
-    return True, f"Writer: {molmo.LABEL}, from {found.name} ({OWN_MODEL_NOTE})."
+    line = f"Writer: {found.label}, from {found.name} ({OWN_MODEL_NOTE})."
+    if found.head:
+        return True, line
+    family = writers.FAMILIES[found.family]
+    spec = SPECS[family.spec]
+    head_file, borrowed = find_head(family.vocab, family.hidden, [found.path], _head_shelf(found, spec, library), spec.own_heads)
+    if head_file is None:
+        if spec.head_download is None:
+            return False, f"Not available: {name} is a {family.label} without its output head, and no other text encoder file holds one of its size."
+        ready = failure(spec.head_download) is None
+        return ready, f"{line if ready else f'Not available: {found.label}, from {name}.'} Its file has no output head. {_own_head(spec.head_download)}"
+    if borrowed:
+        line += f" Its file has no output head; the one in {os.path.basename(head_file)} is used."
+        if spec.head_download is not None:
+            line += " " + _own_head(spec.head_download)
+    else:
+        line += f" Its output head is read from {os.path.basename(head_file)}."
+    return True, line
 
 
 def status(sd_model, writer_file: Optional[str] = None) -> tuple[bool, str]:

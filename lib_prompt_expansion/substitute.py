@@ -16,7 +16,7 @@ from . import cleanup
 from . import fetch as head_fetch
 from . import presets as preset_files
 from . import weights as prompt_weights
-from .adapters import choose
+from .adapters import after_writing, choose, tidy
 from .generator import UnsupportedEncoder
 from .sampling import SamplingOptions
 from .writer import WriteOptions, Writer
@@ -46,6 +46,7 @@ class Settings:
     replay: bool = True  # write from a recorded decoding step (replay.py)
     int8_kernel: bool = True  # int8 ConvRot encoders write through the fused int8 kernel (int8kernel.py)
     writer_file: str = ""  # a model file of its own to write with (adapters.file_adapter); empty: the checkpoint's text encoder
+    after_writing: str = "keep"  # what becomes of a writer of its own when the prompts are written: keep, ram, release (adapters.after_writing)
 
 
 @dataclass
@@ -167,6 +168,7 @@ def expand(
     except Exception as problem:  # noqa: BLE001 - an expansion must never stop a generation
         log.exception("Prompt expansion failed; the prompts are used as typed.")
         report.notes.append(f"failed: {type(problem).__name__}: {problem}")
+    tidy()  # a writer that was released during the job goes now that the job has let go of it
     report.seconds = time.perf_counter() - started
     return report
 
@@ -246,13 +248,19 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
             if state is not None:
                 state.textinfo = f"Prompt expansion: pass {number} of {passes}, {count} tokens"
 
-        with writer_factory(adapter) as session:
-            begun = {"starts": [asked[index] for index in todo]} if settings.begin else {}
-            # named only when switched off, as `starts` is named only when used: a writer need not know them
-            speed = {name: False for name in ("replay", "int8_kernel") if not getattr(settings, name)}
-            started = time.perf_counter()
-            written = session.write_many([systems[index] for index in todo] if conditional else systems[todo[0]], [asked[index] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
-            report.writing = time.perf_counter() - started
+        try:
+            with writer_factory(adapter) as session:
+                begun = {"starts": [asked[index] for index in todo]} if settings.begin else {}
+                # named only when switched off, as `starts` is named only when used: a writer need not know them
+                speed = {name: False for name in ("replay", "int8_kernel") if not getattr(settings, name)}
+                started = time.perf_counter()
+                written = session.write_many([systems[index] for index in todo] if conditional else systems[todo[0]], [asked[index] for index in todo], options, [seeds[index] for index in todo], rows_per_pass=settings.rows_per_pass, should_stop=should_stop, on_progress=progress, **begun, **speed)
+                report.writing = time.perf_counter() - started
+        finally:
+            # a writer of its own makes room for the image model now, when the settings say so; also after a failure
+            freed = after_writing(adapter, getattr(settings, "after_writing", "keep"))
+            if freed:
+                report.notes.append(freed)
         if state is not None:
             state.textinfo = None
         report.tokens = sum(int(getattr(result, "tokens", 0) or 0) for result in written)
@@ -309,6 +317,9 @@ def _expand(p, settings, state, adapter, comments_follow, writer_factory, report
 
     extra = p.extra_generation_params
     extra["Prompt expansion"] = PerImage(expanded, [settings.preset_name if source is not None else None for source in sources])
+    # which model wrote: the text encoder's name, or the model and file of a writer of its own
+    wrote = adapter.describe() if callable(getattr(adapter, "describe", None)) else report.writer
+    extra["Expansion writer"] = PerImage(expanded, [wrote if source is not None else None for source in sources])
     if sampled:
         extra["Expansion seed"] = PerImage(expanded, used_seeds)
     extra["Expansion source"] = PerImage(expanded, sources)

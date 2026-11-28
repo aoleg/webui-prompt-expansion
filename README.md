@@ -4,7 +4,7 @@ Newer image models work best with long, concrete prompts: every shop with a name
 
 Models such as Z-Image, Krea 2, FLUX.2 Klein, Qwen-Image 2.1 and MOSS-Image use a 4B to 9B chat LLM as their text encoder. Forge Neo only ever asks that LLM to read. This extension also asks it to write: at Generate, the encoder expands each prompt, and the expanded text is what gets encoded. There is no second model to download and nothing extra to keep in memory between runs.
 
-For a checkpoint whose text encoder cannot write, or when you prefer another writer, a Molmo2-8B file from your text encoder folders can do the writing instead, as [a writer of its own](#a-writer-of-its-own-molmo2-8b).
+For a checkpoint whose text encoder cannot write, or when you prefer another writer, any file of your text encoder folders that can write (Qwen3, Qwen3-VL, Qwen3.5, Molmo2) can do the writing instead, as [a writer of its own](#a-writer-of-its-own).
 
 ```
 a bus stop on a rainy street at night
@@ -122,17 +122,39 @@ Flux.1, Chroma, Wan, SD 1.5 and SDXL cannot be supported either: T5 and CLIP are
 
 Quantised encoder files work: scaled fp8, fp8 mixed and int8 files were tested. GGUF files were not.
 
-### A writer of its own: Molmo2-8B
+### A writer of its own
 
-The writer need not be the checkpoint's text encoder. [Molmo2-8B](https://huggingface.co/allenai/Molmo2-8B) (Allen Institute for AI, Apache 2.0) is a vision-language model whose language half is Qwen3-8B, trained on for dense captions of pictures. The extension runs that half on Forge Neo's own Qwen3-8B, as a model of its own that is loaded for the writing. It then works with every checkpoint, Flux.1, Chroma, Wan, SD 1.5 and SDXL included.
+The writer need not be the checkpoint's text encoder. Every file in your text encoder folders that belongs to a model this extension can write with is listed under **Writer**, and can do the writing for any checkpoint, Flux.1, Chroma, Wan, SD 1.5 and SDXL included. The chosen file is loaded as a model of its own for the writing, without its vision tower.
 
-- **The file.** Put a complete Molmo2-8B `.safetensors` file into a text encoder folder, press the refresh button of the VAE / Text Encoder list or of this panel, and choose it under **Writer**. Tested with `molmo2_8b_int8_convrot.safetensors` of [Alissonerdx/Molmo2-8B-Minimax-H3](https://huggingface.co/Alissonerdx/Molmo2-8B-Minimax-H3) (INT8 ConvRot, all 36 layers, 9.3 GB). The file is recognised by its tensors, whatever its name. A file with plain bf16 or fp16 weights in allenai's layout is read the same way; none was at hand to test.
+| Model | Told by | Output head |
+|---|---|---|
+| Qwen3-4B | 36 layers of 2560, no vision tower in the file | none needed |
+| Qwen3-VL 4B | the same with a vision tower | none needed |
+| Qwen3-8B | 36 layers of 4096, no vision tower | in the file, in another file of your folders, or downloaded at the first job (as for FLUX.2 Klein 9B above) |
+| Qwen3-VL 8B | the same with a vision tower | in the file, or in another file of your folders |
+| Qwen3.5 2B and 4B | linear-attention layers: 24 layers of 2048, 32 layers of 2560 | none needed |
+| Qwen3.5 9B | 32 layers of 4096 | in the file, or in another file of your folders |
+| Molmo2-8B | allenai's tensor names, 36 layers | in the file |
+
+- **Recognised by its tensors.** The name of a file plays no part. T5, CLIP, and the models that are not supported yet (Gemma, Mistral, Llama, gpt-oss, Qwen2.5-VL, Qwen3 0.6B, the 32B encoder of MiniMax H3) are passed over without a word. A file of a supported model that cannot write is named in the panel's status line with the reason: a copy cut down to fewer layers, an encoder saved without its final norm, a model without its output head when no other file holds one.
+- **The scan reads headers only, and once.** What a header says is kept in Forge's cache folder, by the file's time and size. Measured on a folder of 52 files: 61 ms for the first scan, 4 ms from then on, also after a restart. The refresh button of the panel looks for new files.
+- **Storage formats.** Twenty files were run: bf16, scaled fp8, fp8 mixed, fp4 mixed, nvfp4 and int8 ConvRot. All wrote. GGUF files are not listed.
+- **Pruna's retrained encoder** is listed as "Qwen3-VL 4B, Pruna's retrained". It writes poorly (see below); the stock encoder built for P-Image-OSS is listed as plain Qwen3-VL 4B.
+- **Memory.** The model's own size (about what the file takes on disk, less the vision tower), and 1 to 3 GB more while a pass is written. It is under Forge's memory management like a text encoder: it stays on the GPU while there is room, gives way when the image model needs the memory, and comes back for the next job. The file is read at the first job (a few seconds) and kept until you choose another writer.
+- **After the writing.** Left alone, the writer stays on the GPU, and Forge moves a model to RAM when it needs the room for the image model; which model goes is Forge's choice, and it need not be the writer. **Settings > Prompt Expansion > When the prompts are written, a writer model of its own** decides it instead. *Is moved to RAM at once* frees its VRAM before the image model and its text encoder load, and the next job brings it back. *Is released at once* also lets go of the model, and the next job reads the file again. Other models on the GPU stay where they are, and the checkpoint's own text encoder is never moved. The price is time at the next job, measured here for four prompts (stays, to RAM, released): Molmo2-8B 3.9, 7.6 and 13.4 s; Qwen3.5 2B 3.2, 5.4 and 6.9 s; Qwen3-VL 4B in fp8 2.7, 4.8 and 7.2 s. In RAM a model takes about what it takes on the GPU. After a release the process keeps part of that memory for its own reuse instead of handing it back to Windows at once.
+- **Text only.** No vision tower is loaded; reference images are not shown to the writer.
+- **The infotext names the writer** (`Expansion writer`), with the file when it is a model of its own.
+
+**A trained upsampler: Qwen3.5 2B.** [NidAll/moss-qwen3.5-2b-upsampler-v2-bf16](https://huggingface.co/NidAll/moss-qwen3.5-2b-upsampler-v2-bf16) is a Qwen3.5 2B trained to expand prompts for MOSS-Image (4.4 GB, bf16). Its `model.safetensors`, put into a text encoder folder under any name, is listed as Qwen3.5 2B. It writes with the presets as they are, and it is small and fast: six prompts in 3.3 s here, 7.3 GB of VRAM at the peak. To use it the way it was trained, put the one instruction its model card gives into the **Expansion prompt** box (or save it as a preset of your own, which also lifts the preset's length limit) and untick **Start with my prompt**. Its texts then open with the kind of picture ("Full-color outdoor photograph, ...") and run to 200 words and more, in the manner of MOSS-Image's captions; it gives the people in a scene an age and a skin colour unasked.
+
+**Molmo2-8B.** [Molmo2-8B](https://huggingface.co/allenai/Molmo2-8B) (Allen Institute for AI, Apache 2.0) is a vision-language model whose language half is Qwen3-8B, trained on for dense captions of pictures. The extension runs that half on Forge Neo's own Qwen3-8B.
+
+- **The file.** Tested with `molmo2_8b_int8_convrot.safetensors` of [Alissonerdx/Molmo2-8B-Minimax-H3](https://huggingface.co/Alissonerdx/Molmo2-8B-Minimax-H3) (INT8 ConvRot, all 36 layers, 9.3 GB). A file with plain bf16 or fp16 weights in allenai's layout is read the same way; none was at hand to test. The INT8 ConvRot layers are used as they are stored (they have the numbers of comfy-kitchen's INT8 ConvRot, which Forge runs).
 - **Only a complete file can write**: all 36 layers, the final norm and the output head. A copy that is cut down for use as the text encoder of MiniMax-H3-Image (25 layers, 7.2 GB) is not offered as a writer, and the panel says so: text written without the last layers is a loop of garbage.
-- **Memory.** The model takes 9.4 GB of VRAM, and about 2.2 GB more while ten prompts are written. It is under Forge's memory management like a text encoder: it stays on the GPU while there is room, gives way when the image model needs the memory, and comes back for the next job. The file is read at the first job (a few seconds) and kept until you choose another writer.
-- **Text only.** Molmo2's vision tower is not loaded; reference images are not shown to it.
-- **MiniMax-H3-Image with Molmo2-8B as its text encoder** (through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo)): the encoder as loaded holds only the layers the image model reads and cannot write. If the file it was loaded from is complete, the extension uses that file as the writer by itself, loaded once more in full; the panel says so. With a cut-down file, choose a complete one under **Writer**.
+- **Memory.** 9.4 GB of VRAM, and about 2.2 GB more while ten prompts are written.
+- **MiniMax-H3-Image with Molmo2-8B as its text encoder** (through the [MiniMax H3 extension](https://github.com/aoleg/pruna-P-H3-Image-forge-neo)): the encoder as loaded holds only the layers the image model reads and cannot write. If the file it was loaded from is complete, the extension uses that file as the writer by itself, loaded once more in full; the panel says so. With a cut-down file, choose a complete one under **Writer**. Lettering in Cyrillic that Molmo2 wrote correctly was drawn in Latin letters when Molmo2 was also the text encoder of the image model ("ВОКЗАЛ" as "VOKZAL", in four pictures of four): the fault is in the encoding for the image model, not in the written text.
 
-The INT8 ConvRot layers are used as they are stored (they have the numbers of comfy-kitchen's INT8 ConvRot, which Forge runs), and both speed-ups below apply.
+Both speed-ups below apply to a writer of its own.
 
 ## Install
 
@@ -150,7 +172,7 @@ There are no extra Python packages.
 
 Open the **Prompt Expansion** panel in txt2img or img2img, tick **Enable**, and generate as usual.
 
-- **Writer**: what writes the expansion. *This checkpoint's text encoder* is the default; a Molmo2-8B file in your text encoder folders is listed below it (see [A writer of its own](#a-writer-of-its-own-molmo2-8b)). The panel opens with the writer you chose last time, and the line above the list says whether it can write.
+- **Writer**: what writes the expansion. *This checkpoint's text encoder* is the default; every file of your text encoder folders that can write is listed below it, by model and name (see [A writer of its own](#a-writer-of-its-own)). The panel opens with the writer you chose last time, and the line above the list says whether it can write.
 - **Preset**: a ready-made instruction for the encoder. Choosing one fills the box below. The panel opens with the preset you chose last time.
 - **Expansion prompt**: the instruction itself. Edit it freely; what is in the box is what is sent. Your own prompt follows it as the request. `{words}` is replaced by the length. An edit lasts until the page is loaded again: the text is not saved, and the panel then shows the preset's own text. To keep an edited instruction, save it as a preset of your own (see Presets below).
 - **Start with my prompt**: the expansion begins with your prompt, word for word, and continues it. Each preset sets this; it is off for the presets that rewrite or translate.
@@ -211,7 +233,7 @@ Writing your own instruction for a 4B to 9B model, as measured on these encoders
 - **Absence statements and inferences** are removed the same way when the expansion prompt forbids them ("never says that something is absent", "never vague statements, interpretations"; Soviet era does): a sentence such as "No people are visible in the frame." or "The image shows only visible elements without interpretation." goes, and so do clauses such as ", with no other cars in the frame", ", indicating sunlight from the right" and "typical of the era". A small encoder pads a sparse scene with them even when told not to; in a test of 1,200 Soviet era texts on the MOSS-Image encoder they were in 327 and 320 texts before this step and in 11 and 20 after it. The first sentence, quoted lettering and your own words are never removed.
 - **The negative prompt** is never touched.
 - **Hires fix** uses the expanded prompt, unless you typed a separate hires prompt.
-- **Infotext.** The prompt saved with the image is the expanded one, so pasting it back reproduces the image with the extension off. Three keys are added: `Prompt expansion` (the preset), `Expansion seed` and `Expansion source` (what you typed).
+- **Infotext.** The prompt saved with the image is the expanded one, so pasting it back reproduces the image with the extension off. Four keys are added: `Prompt expansion` (the preset), `Expansion writer` (the model that wrote, with its file when it is a writer of its own), `Expansion seed` and `Expansion source` (what you typed).
 - **Nothing can break a generation.** If the encoder refuses, returns nothing, or the run is interrupted, the image is generated from the prompt as typed.
 
 The answer is cleaned before use: introductions and Markdown are removed, a text cut off by the token limit is trimmed to its last full sentence, and a sentence that drifts into another writing system is dropped. A small model sometimes locks onto one word and repeats it; that is detected, and the text before it is kept.

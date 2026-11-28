@@ -7,7 +7,7 @@ replaced by the length when a request is written.
 
 Lines between "# if: term, term*" and "# end" (with an optional "# else") go to the encoder only for requests that
 contain one of the terms, so that a small encoder is not shown rules it would apply to every picture. A term
-"!boy*" holds when the request has no such word. Lines between "# add if missing: term, term*" and "# end" never go to
+"!boy*" holds when the request has no such word; groups joined by " & " must all hold ("pioneer* & parade*"). Lines between "# add if missing: term, term*" and "# end" never go to
 the encoder: they are put after the expanded text when it contains none of the terms, for what must be said.
 "# replace in request: *children => *children, *boys and *girls" changes the request the encoder sees ("*" is the rest
 of a word); "# replace in answer: each child wears => each boy wears" changes the encoder's text, and inside an
@@ -17,7 +17,8 @@ of a word); "# replace in answer: each child wears => each boy wears" changes th
 "{random:47-19 ЛДА}" is replaced by a new value of the sample's form for every request (each digit by a random digit,
 each Cyrillic or Latin capital by a random capital of the same alphabet, the rest kept), and "{number:2-99}" by a
 number in that range. "# set: tie = a red pioneer tie," gives "{tie}" that value in every line and addition, where the
-blocks around it hold for the request; where they do not, "{tie}" is left out. A small encoder copies such samples, so the plates and route numbers it writes then differ from
+blocks around it hold for the request; where they do not, "{tie}" is left out. The last "# set:" for a name that holds
+counts, and a value may hold other values ("# set: tie = a {red} pioneer tie"). A small encoder copies such samples, so the plates and route numbers it writes then differ from
 picture to picture; they come from the expansion seed, so a fixed seed gives the same text again. "{pick:ЦЕНТР|ВОКЗАЛ}"
 is replaced by one of its choices, also by the expansion seed; it is a word, not a number, so it stays when the request
 brings a number of its own.
@@ -123,7 +124,11 @@ def _term(term: str) -> re.Pattern:
 def matches(terms: str, request: str) -> bool:
     """Does the request contain any of the comma-separated terms? A term written "!boy*" holds when the request
     has no such word: the condition holds when any plain term is found, or when none of the "!" terms is
-    ("girl*, !boy*" = girls are named, or no boys are)."""
+    ("girl*, !boy*" = girls are named, or no boys are). Groups joined by " & " must all hold
+    ("pioneer* & parade*" = pioneers and a parade)."""
+    groups = re.split(r"\s+&\s+", terms)
+    if len(groups) > 1:
+        return all(matches(group, request) for group in groups)
     plain, absent = [], []
     for term in (part.strip() for part in terms.split(",")):
         if term.startswith("!") and term[1:].strip():
@@ -157,13 +162,17 @@ class Plan:
 
 def _put_values(line: str, declared: set, values: dict) -> str:
     """A line with the "# set:" values in place of their {name}; a name this request does not reach becomes empty,
-    and the run of spaces it leaves is closed."""
+    and the space it leaves is closed (a run of spaces, a space before "," "." ";"). A value may hold other values."""
     changed = line
-    for name in declared:
-        changed = changed.replace("{" + name + "}", values.get(name, ""))
+    for _ in range(len(declared) + 1):
+        before = changed
+        for name in declared:
+            changed = changed.replace("{" + name + "}", values.get(name, ""))
+        if changed == before:
+            break
     if changed == line:
         return line
-    return re.sub(r" {2,}", " ", changed).replace(" ,", ",")
+    return re.sub(r" +([,.;])", r"\1", re.sub(r" {2,}", " ", changed)).strip()
 
 
 def _walk(text: str, request: str) -> Plan:

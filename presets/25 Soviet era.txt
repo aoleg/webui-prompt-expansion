@@ -37,85 +37,171 @@ Octobrists are 7 to 9 years old.
 # if: !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
 A group of schoolchildren is girls and boys together.
 # end
-# if: !octobrist*, !first-grader*, !first grader*, !pervoklass*, !октябр*, !первоклас*, !tie, !ties, !scarf, !scarves, !галстук*, !pioneer*, !пионер*
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Pioneers wear a pioneer tie.
+# set: blue = dark
 # else
-Pioneers wear a red pioneer tie.
+# set: red = red
+# set: blue = dark blue
 # end
+# if: pioneer*, пионер* & parade*, парад*, rally, rallies, слёт*, слет*, сбор дружины, honor guard, honour guard, guard of honour, guard of honor, почётн* караул*, почетн* караул*, festive pioneer
+# if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
+# if: girl, schoolgirl, девочка, девочку, девочке, девочкой, школьница, школьницу, школьнице, пионерка, пионерку, пионерке & !girls, !schoolgirls, !девочки, !девочек, !девочкам, !школьницы, !школьниц, !пионерки, !пионерок
+# set: girls = The pioneer girl wears the festive pioneer school uniform: a white blouse, a {red} pioneer tie, a {blue} skirt and white hair bows.
+# else
+# set: girls = The pioneer girls wear the festive pioneer school uniform: white blouses, {red} pioneer ties, {blue} skirts and white hair bows.
 # end
-# if: pioneer*, пионер*
-# if: !octobrist*, !first-grader*, !first grader*, !pervoklass*, !октябр*, !первоклас*, !tie, !ties, !scarf, !scarves, !галстук*
+{girls}
+# end
+# if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
+# if: boy, schoolboy, мальчик, мальчика, мальчику, мальчиком, школьник, школьника, школьнику & !boys, !schoolboys, !мальчики, !мальчиков, !мальчикам, !мальчишки, !школьники, !школьников
+# set: boys = The pioneer boy wears the festive pioneer school uniform: a white shirt, a {red} pioneer tie and {blue} trousers.
+# else
+# set: boys = The pioneer boys wear the festive pioneer school uniform: white shirts, {red} pioneer ties and {blue} trousers.
+# end
+{boys}
+# end
+# add if missing: white shirt*, white blouse*
+{girls} {boys}
+# end
+# else
+# replace in request: school uniform* => school clothes
+# replace in request: pioneer uniform* => school clothes
+# replace in request: uniform* => school clothes
+# replace in request: школьн* форм* => школьн* одежд*
+# replace in request: пионерск* форм* => школьн* одежд*
+# replace in answer: Soviet school uniforms => Soviet school clothes
+# replace in answer: Soviet school uniform => Soviet school clothes
+# replace in answer: a school uniform => school clothes
+# replace in answer: school uniforms => school clothes
+# replace in answer: school uniform => school clothes
+# replace in answer: a pioneer uniform => school clothes
+# replace in answer: pioneer uniforms => school clothes
+# replace in answer: pioneer uniform => school clothes
+# replace in answer: uniforms => school clothes
+# replace in answer: uniform fashion => the same fashion
+# replace in answer: uniform pioneer => pioneer
+# replace in answer: uniform school => school
+# replace in answer: in a uniform => in school clothes
+# replace in answer: in uniform => in school clothes
+# replace in answer: their uniform => their school clothes
+# replace in answer: her uniform => her school clothes
+# replace in answer: his uniform => his school clothes
+# replace in answer: the uniform => the school clothes
+# replace in answer: and uniform => and school clothes
+# set: trims = white collars and cuffs
+# set: trim = a white collar and cuffs
+# if: pioneer*, пионер* & !octobrist*, !октябр*, !first-grader*, !first grader*, !pervoklass*, !первоклас*, !tie, !ties, !scarf, !scarves, !галстук*
+# set: trims = white collars, cuffs and {red} pioneer ties
+# set: trim = a white collar, cuffs and a {red} pioneer tie
+# set: ties = and {red} pioneer ties
+# set: tie = and a {red} pioneer tie
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-# set: tie = a pioneer tie,
 # replace in answer: and no tie => and a pioneer tie
 # replace in answer: with no tie => with a pioneer tie
 # replace in answer: without a tie => with a pioneer tie
 # replace in answer: no tie => a pioneer tie
-# add if missing: pioneer tie, pioneer ties, neckerchief*, kerchief*, pioneer scarf, pioneer scarves
-Every pioneer wears a pioneer tie.
-# end
 # else
-# set: tie = a red pioneer tie,
 # replace in answer: and no tie => and a red pioneer tie
 # replace in answer: with no tie => with a red pioneer tie
 # replace in answer: without a tie => with a red pioneer tie
 # replace in answer: no tie => a red pioneer tie
+# end
 # add if missing: pioneer tie, pioneer ties, neckerchief*, kerchief*, pioneer scarf, pioneer scarves
-Every pioneer wears a red pioneer tie.
+Every pioneer wears a {red} pioneer tie.
 # end
 # end
+# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
+# set: aprons = white aprons
+# set: apron = a white apron
+# set: bows = and white hair bows
+# set: shirts = with white shirts
+# set: shirt = with a white shirt
+# if: !apron*, !pinafore*, !фартук*, !передник*
+# replace in answer: black apron* => white apron*
+# replace in answer: black pinafore* => white pinafore*
+# end
+# if: !shirt*, !рубаш*, !сорочк*
+# replace in answer: light blue shirt* => white shirt*
+# replace in answer: light shirt* => white shirt*
+# end
+# else
+# set: aprons = black aprons
+# set: apron = a black apron
+# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
+# set: shirts = with light grey shirts
+# set: shirt = with a light grey shirt
+# else
+# set: shirts = with light blue shirts
+# set: shirt = with a light blue shirt
 # end
 # end
 # if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
-# if: !dress, !dresses, !плать*
+# if: !dress, !dresses, !плать*, !apron*, !pinafore*, !фартук*, !передник*
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Schoolgirls wear {tie} a dark dress with a white collar and cuffs and white hair bows.
+# set: dresses = dark dresses
+# set: dress = a dark dress
 # else
-Schoolgirls wear {tie} a dark brown dress with a white collar and cuffs and white hair bows.
+# set: dresses = dark brown dresses
+# set: dress = a dark brown dress
 # end
+# if: girl, schoolgirl, девочка, девочку, девочке, девочкой, школьница, школьницу, школьнице, пионерка, пионерку, пионерке & !girls, !schoolgirls, !девочки, !девочек, !девочкам, !школьницы, !школьниц, !пионерки, !пионерок
+# set: girls = The schoolgirl wears {dress} with {apron}, {trim} {bows}.
 # else
-Schoolgirls wear {tie} white hair bows.
+# set: girls = The schoolgirls wear {dresses} with {aprons}, {trims} {bows}.
 # end
-# if: !apron*, !pinafore*, !фартук*, !передник*
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-Girls' aprons are white.
-# replace in answer: black apron* => white apron*
-# replace in answer: black pinafore* => white pinafore*
-# else
-Girls' aprons are black.
+{girls}
+# add if missing: dress, dresses, apron, aprons, pinafore*
+# replace in answer: each child wears => each boy wears
+# replace in answer: every child wears => every boy wears
+# replace in answer: all the *children wear => the *boys wear
+# replace in answer: all *children wear => the *boys wear
+# replace in answer: *children wear => *boys wear
+# replace in answer: *children are dressed in => *boys are dressed in
+# replace in answer: *children dressed in => *boys dressed in
+{girls}
 # end
 # end
 # end
 # if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
+# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
 # if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
-# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
-Schoolboys wear {tie} a grey tunic with a stand-up collar, a belt with a buckle and a peaked cap.
-# end
+# set: suits = grey school tunics with belts
+# set: suit = a grey school tunic with a belt
+# set: shirts =
+# set: shirt =
 # else
-# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
 # if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Schoolboys wear {tie} a grey wool suit.
+# set: suits = grey wool school suits
+# set: suit = a grey wool school suit
 # else
 # if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Schoolboys wear {tie} a dark suit.
+# set: suits = dark school suits
+# set: suit = a dark school suit
 # else
-Schoolboys wear {tie} a dark navy suit.
+# set: suits = dark navy school suits
+# set: suit = a dark navy school suit
 # end
 # end
 # end
-# if: !shirt*, !рубаш*, !сорочк*
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-Boys' shirts are white.
-# replace in answer: light blue shirt* => white shirt*
-# replace in answer: light shirt* => white shirt*
+# if: shirt*, рубаш*, сорочк*
+# set: shirts =
+# set: shirt =
+# end
+# if: boy, schoolboy, мальчик, мальчика, мальчику, мальчиком, школьник, школьника, школьнику & !boys, !schoolboys, !мальчики, !мальчиков, !мальчикам, !мальчишки, !школьники, !школьников
+# set: boys = The schoolboy wears {suit} {shirt} {tie}.
 # else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Boys' shirts are light grey.
-# else
-Boys' shirts are light blue.
+# set: boys = The schoolboys wear {suits} {shirts} {ties}.
 # end
-# end
+{boys}
+# add if missing: suit, suits, tunic, tunics, jacket, jackets, blazer*
+# replace in answer: each child wears => each girl wears
+# replace in answer: every child wears => every girl wears
+# replace in answer: all the *children wear => the *girls wear
+# replace in answer: all *children wear => the *girls wear
+# replace in answer: *children wear => *girls wear
+# replace in answer: *children are dressed in => *girls are dressed in
+# replace in answer: *children dressed in => *girls dressed in
+{boys}
 # end
 # end
 # end
@@ -133,80 +219,7 @@ Boys' shirts are light blue.
 # replace in answer: navy blue suit* => navy suit*
 # replace in answer: dark blue suit* => navy suit*
 # replace in answer: dark navy suit* => navy suit*
-# replace in answer: navy suit* => dark navy suit*
-# end
-# end
-
-# if: girl*, schoolgirl*, девоч*, школьниц*, пионерк*, !boy*, !schoolboy*, !мальчик*, !школьник
-# if: !dress, !dresses, !плать*, !apron*, !pinafore*, !фартук*, !передник*
-# add if missing: dress, dresses, apron, aprons, pinafore*
-# replace in answer: each child wears => each boy wears
-# replace in answer: every child wears => every boy wears
-# replace in answer: all the *children wear => the *boys wear
-# replace in answer: all *children wear => the *boys wear
-# replace in answer: *children wear => *boys wear
-# replace in answer: *children are dressed in => *boys are dressed in
-# replace in answer: *children dressed in => *boys dressed in
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Girls' school uniform: {tie} a dark dress with a white collar and cuffs,
-# else
-Girls' school uniform: {tie} a dark brown dress with a white collar and cuffs,
-# end
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-a white apron, white hair bows.
-# else
-a black apron, white hair bows.
-# end
-# end
-# end
-# end
-# if: boy*, schoolboy*, мальчик*, школьник, !girl*, !schoolgirl*, !девоч*, !школьниц*, !пионерк*
-# if: !suit, !suits, !tunic*, !jacket*, !blazer*, !костюм*, !пиджак*, !китель*, !гимнастёрк*, !гимнастерк*
-# add if missing: suit, suits, tunic, tunics, jacket, jackets, blazer*
-# replace in answer: each child wears => each girl wears
-# replace in answer: every child wears => every girl wears
-# replace in answer: all the *children wear => the *girls wear
-# replace in answer: all *children wear => the *girls wear
-# replace in answer: *children wear => *girls wear
-# replace in answer: *children are dressed in => *girls are dressed in
-# replace in answer: *children dressed in => *girls dressed in
-# if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
-Boys' school uniform: {tie} a grey tunic with a stand-up collar, a belt with a buckle, a peaked cap.
-# else
-# if: shirt*, рубаш*, сорочк*
-# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Boys' school uniform: {tie} a grey wool suit.
-# else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Boys' school uniform: {tie} a dark suit.
-# else
-Boys' school uniform: {tie} a dark navy suit.
-# end
-# end
-# else
-# if: festive, holiday*, celebrat*, first of september, 1st of september, september 1, september 1st, 1 september, first day of school, first-grader*, first grader*, pervoklass*, первоклас*, 1 сентября, первое сентября, первого сентября, день знаний, праздн*, торжеств*, last bell, последний звонок, parade*
-# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Boys' school uniform: {tie} a grey wool suit with a white shirt.
-# else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Boys' school uniform: {tie} a dark suit with a white shirt.
-# else
-Boys' school uniform: {tie} a dark navy suit with a white shirt.
-# end
-# end
-# else
-# if: 1960s, 60s, 196*, sixties, 1960-*, 60-е, шестидесят*
-Boys' school uniform: {tie} a grey wool suit with a light shirt.
-# else
-# if: black and white, black-and-white, b&w, b/w, bw, monochrome, monochromatic, sepia, grayscale, greyscale, чёрно-бел*, черно-бел*, ч/б, монохром*
-Boys' school uniform: {tie} a dark suit with a light grey shirt.
-# else
-Boys' school uniform: {tie} a dark navy suit with a light blue shirt.
-# end
-# end
-# end
-# end
-# end
+# replace in answer: navy suit* => dark navy school suit*
 # end
 # end
 # end
@@ -235,14 +248,6 @@ Give the car the plate "{random:47-19 ЛДА}" on its bumper.
 # if: !black and white, !black-and-white, !b&w, !b/w, !bw, !monochrome, !monochromatic, !sepia, !grayscale, !greyscale, !чёрно-бел*, !черно-бел*, !ч/б, !монохром*
 # if: !black taxi*, !white taxi*, !red taxi*, !blue taxi*, !green taxi*, !grey taxi*, !gray taxi*, !beige taxi*, !orange taxi*, !brown taxi*, !cream taxi*, !yellow taxi*, !чёрное такси, !черное такси, !белое такси, !красное такси, !синее такси, !зелёное такси, !зеленое такси, !серое такси, !жёлтое такси, !желтое такси
 The taxi is yellow, with a sign reading "ТАКСИ" on its roof.
-# replace in answer: "ТАКСИ" above its windscreen => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" above the windscreen => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" above its windshield => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" above the windshield => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" on its windscreen => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" on the windscreen => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" on its front => "ТАКСИ" on its roof
-# replace in answer: "ТАКСИ" on the front => "ТАКСИ" on its roof
 # replace in answer: an {colour} GAZ-* Volga taxi* => a yellow GAZ-* Volga taxi*
 # replace in answer: {colour} GAZ-* Volga taxi* => yellow GAZ-* Volga taxi*
 # replace in answer: an {colour} Volga taxi* => a yellow Volga taxi*
@@ -256,10 +261,26 @@ The taxi is yellow, with a sign reading "ТАКСИ" on its roof.
 # add if missing: yellow
 The taxi is yellow.
 # end
+# else
+The taxi has a sign reading "ТАКСИ" on its roof.
+# end
+# else
+The taxi has a sign reading "ТАКСИ" on its roof.
+# end
+# replace in answer: "ТАКСИ" above its windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above the windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above its windshield => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above the windshield => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on its windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on the windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on its front => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on the front => "ТАКСИ" on its roof
+# replace in answer: above its windscreen, a sign reads "ТАКСИ" => on its roof, a sign reads "ТАКСИ"
+# replace in answer: above the windscreen, a sign reads "ТАКСИ" => on its roof, a sign reads "ТАКСИ"
+# replace in answer: above its windshield, a sign reads "ТАКСИ" => on its roof, a sign reads "ТАКСИ"
+# replace in answer: above the windshield, a sign reads "ТАКСИ" => on its roof, a sign reads "ТАКСИ"
 # add if missing: roof*
 A sign reading "ТАКСИ" stands on the taxi's roof.
-# end
-# end
 # end
 # end
 # if: bus, buses, bus stop, liaz*, laz-*, paz*, ikarus, автобус*, лиаз*, икарус*

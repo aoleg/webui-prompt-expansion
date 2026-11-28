@@ -52,7 +52,7 @@ Pioneers wear a red pioneer tie.
 # replace in answer: with no tie => with a pioneer tie
 # replace in answer: without a tie => with a pioneer tie
 # replace in answer: no tie => a pioneer tie
-# add if missing: pioneer tie, pioneer ties
+# add if missing: pioneer tie, pioneer ties, neckerchief*, kerchief*, pioneer scarf, pioneer scarves
 Every pioneer wears a pioneer tie.
 # end
 # else
@@ -61,7 +61,7 @@ Every pioneer wears a pioneer tie.
 # replace in answer: with no tie => with a red pioneer tie
 # replace in answer: without a tie => with a red pioneer tie
 # replace in answer: no tie => a red pioneer tie
-# add if missing: pioneer tie, pioneer ties
+# add if missing: pioneer tie, pioneer ties, neckerchief*, kerchief*, pioneer scarf, pioneer scarves
 Every pioneer wears a red pioneer tie.
 # end
 # end
@@ -243,6 +243,16 @@ The taxi is yellow, with a sign reading "ТАКСИ" on its roof.
 # replace in answer: "ТАКСИ" on the windscreen => "ТАКСИ" on its roof
 # replace in answer: "ТАКСИ" on its front => "ТАКСИ" on its roof
 # replace in answer: "ТАКСИ" on the front => "ТАКСИ" on its roof
+# replace in answer: an {colour} GAZ-* Volga taxi* => a yellow GAZ-* Volga taxi*
+# replace in answer: {colour} GAZ-* Volga taxi* => yellow GAZ-* Volga taxi*
+# replace in answer: an {colour} Volga taxi* => a yellow Volga taxi*
+# replace in answer: {colour} Volga taxi* => yellow Volga taxi*
+# if: !black, !white, !red, !blue, !green, !grey, !gray, !beige, !orange, !brown, !cream, !silver, !чёрн*, !черн*, !бел*, !красн*, !син*, !зелён*, !зелен*, !сер*, !бежев*, !коричнев*
+# replace in answer: an {colour} GAZ-2* => a yellow GAZ-2*
+# replace in answer: {colour} GAZ-2* => yellow GAZ-2*
+# replace in answer: an {colour} Volga* => a yellow Volga*
+# replace in answer: {colour} Volga* => yellow Volga*
+# end
 # add if missing: yellow
 The taxi is yellow.
 # end

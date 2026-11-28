@@ -11,7 +11,8 @@ contain one of the terms, so that a small encoder is not shown rules it would ap
 the encoder: they are put after the expanded text when it contains none of the terms, for what must be said.
 "# replace in request: *children => *children, *boys and *girls" changes the request the encoder sees ("*" is the rest
 of a word); "# replace in answer: each child wears => each boy wears" changes the encoder's text, and inside an
-"# add if missing:" block only when that block is used.
+"# add if missing:" block only when that block is used. In a pattern "{colour}" stands for a colour with its shade
+("dark blue", "cream-colored", "red-and-white"): "# replace in answer: {colour} Volga taxi => yellow Volga taxi".
 
 "{random:47-19 ЛДА}" is replaced by a new value of the sample's form for every request (each digit by a random digit,
 each Cyrillic or Latin capital by a random capital of the same alphabet, the rest kept), and "{number:2-99}" by a
@@ -236,12 +237,24 @@ def additions(text: str, request: str) -> list:
     return list(_walk(text, request).additions)
 
 
+# "{colour}" in a "# replace in" pattern: a colour as a text puts it in front of a thing, one word or a compound, with
+# its shade ("cream", "dark blue", "dark olive-green", "red-and-white", "cream-colored")
+_SHADE = r"(?:dark|light|pale|deep|bright|faded|dull|muted|soft|glossy|matte|pastel|dusty)"
+_COLOUR_WORD = (
+    r"(?:red|reddish|blue|bluish|green|greenish|brown|brownish|yellow|yellowish|orange|pink|purple|navy|beige|cream|ivory|white|black|"
+    r"grey|gray|golden|gold|silver|crimson|scarlet|turquoise|violet|maroon|tan|khaki|olive|teal|amber|ochre|burgundy|lilac|mustard|charcoal|sand)"
+)
+_COLOUR = rf"(?:{_SHADE}[ -])*{_COLOUR_WORD}(?:(?:-and-|-| and ){_COLOUR_WORD})*(?:-(?:coloured|colored|toned|tinted|painted))?"
+_TOKEN = re.compile(r"(\*|\{colou?r\})")
+
+
 def _phrase(pattern: str) -> re.Pattern:
-    """A "# replace in" pattern: words in any case, any run of spaces for a space, "*" for the rest of a word."""
-    parts = re.split(r"(\*)", pattern.strip())
-    body = "".join(r"(\w*)" if part == "*" else r"\s+".join(re.escape(word) for word in part.split(" ")) for part in parts)
+    """A "# replace in" pattern: words in any case, any run of spaces for a space, "*" for the rest of a word,
+    "{colour}" for a colour with its shade."""
+    parts = _TOKEN.split(pattern.strip())
+    body = "".join(r"(\w*)" if part == "*" else f"(?:{_COLOUR})" if part.startswith("{") and _TOKEN.fullmatch(part) else r"\s+".join(re.escape(word) for word in part.split(" ")) for part in parts)
     # word edges only where the pattern begins or ends with a word: '" in double quotes' follows a closing quote
-    before = r"(?<!\w)" if re.match(r"[\w*]", pattern.strip()) else ""
+    before = r"(?<![\w-])" if re.match(r"[\w*]|\{colou?r\}", pattern.strip()) else ""
     after = r"(?!\w)" if re.search(r"[\w*]$", pattern.strip()) else ""
     return re.compile(before + body + after, re.I)
 

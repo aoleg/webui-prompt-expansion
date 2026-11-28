@@ -231,6 +231,27 @@ Give the car the plate "{random:МО 47-19}" on its bumper.
 Give the car the plate "{random:47-19 ЛДА}" on its bumper.
 # end
 # end
+# if: taxi*, такси*
+# if: !black and white, !black-and-white, !b&w, !b/w, !bw, !monochrome, !monochromatic, !sepia, !grayscale, !greyscale, !чёрно-бел*, !черно-бел*, !ч/б, !монохром*
+# if: !black taxi*, !white taxi*, !red taxi*, !blue taxi*, !green taxi*, !grey taxi*, !gray taxi*, !beige taxi*, !orange taxi*, !brown taxi*, !cream taxi*, !yellow taxi*, !чёрное такси, !черное такси, !белое такси, !красное такси, !синее такси, !зелёное такси, !зеленое такси, !серое такси, !жёлтое такси, !желтое такси
+The taxi is yellow, with a sign reading "ТАКСИ" on its roof.
+# replace in answer: "ТАКСИ" above its windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above the windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above its windshield => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" above the windshield => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on its windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on the windscreen => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on its front => "ТАКСИ" on its roof
+# replace in answer: "ТАКСИ" on the front => "ТАКСИ" on its roof
+# add if missing: yellow
+The taxi is yellow.
+# end
+# add if missing: roof*
+A sign reading "ТАКСИ" stands on the taxi's roof.
+# end
+# end
+# end
+# end
 # if: bus, buses, bus stop, liaz*, laz-*, paz*, ikarus, автобус*, лиаз*, икарус*
 # if: 1950s, 50s, 195*, fifties, 1950-*, 50-е, пятидесят*
 Name each bus by model: ZIL-158.
